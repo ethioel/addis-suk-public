@@ -1,0 +1,5 @@
+# Public Wrapper Dependencies Only
+# Core logic is distributed separately
+
+aiogram==3.2.0
+python-dotenv==1.0.0
