@@ -15,7 +15,7 @@ from aiogram.fsm.state import State, StatesGroup
 from typing import Any
 
 from src.config import load_config
-import src.config as config_module
+import src.config as config
 from src.models.database import Database, UserRole, SellerStatus
 from src.services import Services
 from src.locales import i18n
