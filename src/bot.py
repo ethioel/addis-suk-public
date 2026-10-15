@@ -774,7 +774,7 @@ class AddisSukBot:
             await callback.answer()
 
     def _register_errors(self):
-        @self.dp.errors.register(Exception)
+        @self.dp.errors.register()
         async def error_handler(event: Any, exception: Exception):
             logger.error(f"Error: {exception}", exc_info=True)
             if isinstance(event, Message):
