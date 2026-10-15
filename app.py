@@ -16,12 +16,16 @@ import threading
 from pathlib import Path
 
 # Satisfy HF Spaces gradio SDK startup scan for @spaces.GPU function.
-# Uses local spaces.py shim (no gradio dependency, no pydantic conflict).
-import spaces
+# Falls back to no-op decorator if spaces package unavailable.
+try:
+    import spaces
 
-@spaces.GPU
-def _gpu_dummy():
-    return None
+    @spaces.GPU
+    def _gpu_dummy():
+        return None
+except ImportError:
+    def _gpu_dummy():
+        return None
 
 # Configure logging early for HF Spaces
 logging.basicConfig(
