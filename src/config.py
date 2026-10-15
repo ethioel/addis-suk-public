@@ -96,9 +96,9 @@ def load_config() -> Config:
     return config
 
 
-config = load_config()
+config = None
 
-# Export commonly used values
-BOT_TOKEN = config.BOT_TOKEN
-ADMIN_IDS = config.ADMIN_IDS
-DB_PATH = config.DB_PATH
+# Export commonly used values (set after load_config() is called)
+BOT_TOKEN = ""
+ADMIN_IDS = []
+DB_PATH = str(DATA_DIR / "addis_suk.db")
