@@ -15,6 +15,14 @@ import logging
 import threading
 from pathlib import Path
 
+# Satisfy HF Spaces gradio SDK startup scan for @spaces.GPU function.
+# Uses local spaces.py shim (no gradio dependency, no pydantic conflict).
+import spaces
+
+@spaces.GPU
+def _gpu_dummy():
+    return None
+
 # Configure logging early for HF Spaces
 logging.basicConfig(
     level=logging.INFO,
