@@ -5,7 +5,7 @@ from pathlib import Path
 from aiogram import Bot, Dispatcher, F, Router
 from aiogram.filters import Command, CommandStart
 from aiogram.types import (
-    Message, CallbackQuery,
+    Message, CallbackQuery, ErrorEvent,
     ReplyKeyboardMarkup, KeyboardButton
 )
 from aiogram.utils.keyboard import InlineKeyboardBuilder
@@ -229,6 +229,13 @@ class AddisSukBot:
 
         @self.router.message(Command("search"))
         async def cmd_search(message: Message, state: FSMContext, db: Database, user: dict, lang: str):
+            if not user:
+                user = await self.services.user.get_or_create_user(
+                    telegram_id=message.from_user.id,
+                    username=message.from_user.username,
+                    first_name=message.from_user.first_name,
+                    last_name=message.from_user.last_name
+                )
             user_info = await self.services.user.get_user_subscription_info(message.from_user.id)
             search_count = await db.fetchone(
                 "SELECT COUNT(*) as cnt FROM search_logs WHERE user_id = ? AND date(created_at) = date('now')",
@@ -774,10 +781,11 @@ class AddisSukBot:
             await callback.answer()
 
     def _register_errors(self):
-        async def error_handler(event: Any, exception: Exception):
+        async def error_handler(event: ErrorEvent):
+            exception = event.exception
             logger.error(f"Error: {exception}", exc_info=True)
-            if isinstance(event, Message):
-                await event.answer("❌ An error occurred. Please try again.")
+            if isinstance(event.update, Message):
+                await event.update.answer("❌ An error occurred. Please try again.")
         self.dp.errors.register(error_handler)
 
     async def _perform_search(self, message: Message, query: str, db: Database, user: dict, lang: str):
