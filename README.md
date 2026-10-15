@@ -3,9 +3,7 @@ title: Addis Suk Bot
 emoji: 🐢
 colorFrom: indigo
 colorTo: pink
-sdk: gradio
-sdk_version: 6.30.0
-python_version: 3.12
+sdk: docker
 app_file: app.py
 pinned: false
 ---
