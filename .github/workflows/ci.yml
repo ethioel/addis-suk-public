@@ -75,31 +75,4 @@ jobs:
           HF_USERNAME: ${{ secrets.HF_USERNAME }}
           HF_SPACE_NAME: ${{ secrets.HF_SPACE_NAME }}
         run: |
-          cat > /tmp/deploy_to_hf.py << PYEOF
-from huggingface_hub import HfApi
-api = HfApi()
-api.upload_folder(
-    folder_path='.',
-    repo_id='${HF_USERNAME}/${HF_SPACE_NAME}',
-    repo_type='space',
-    token='${HF_TOKEN}',
-    commit_message='Deploy Addis Suk Bot from GitHub Actions',
-    ignore_patterns=[
-        '.git/**',
-        '__pycache__/**',
-        '*.pyc',
-        'data/**',
-        'logs/**',
-        '.env',
-        '.env.local',
-        '*.db',
-        '.pytest_cache/**',
-        '.ruff_cache/**',
-        '.mypy_cache/**',
-        '.vscode/**',
-        '.idea/**',
-    ]
-)
-print('✅ Successfully pushed to Hugging Face Spaces')
-PYEOF
-          python /tmp/deploy_to_hf.py
+          python .github/scripts/deploy_to_hf.py
