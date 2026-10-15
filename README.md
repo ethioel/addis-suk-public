@@ -1,3 +1,15 @@
+---
+title: Addis Suk Bot
+emoji: 🐢
+colorFrom: indigo
+colorTo: pink
+sdk: gradio
+sdk_version: 6.30.0
+python_version: 3.12
+app_file: app.py
+pinned: false
+---
+
 # Addis Suk Bot
 
 **A Telegram-based price comparison platform connecting Ethiopian consumers with local sellers.**
