@@ -15,7 +15,7 @@ from aiogram.fsm.state import State, StatesGroup
 from typing import Any
 
 from src.config import load_config
-import src.config as config
+config = load_config()
 from src.models.database import Database, UserRole, SellerStatus
 from src.services import Services
 from src.locales import i18n
@@ -57,9 +57,9 @@ class Form(StatesGroup):
 class AddisSukBot:
 
     def __init__(self):
-        self.bot = Bot(token=BOT_TOKEN, parse_mode="Markdown")
+        self.bot = Bot(token=config.BOT_TOKEN, parse_mode="Markdown")
         self.dp = Dispatcher(storage=MemoryStorage())
-        self.db = Database(DB_PATH)
+        self.db = Database(config.DB_PATH)
         self.services = Services(self.db)
         self.router = Router()
 
