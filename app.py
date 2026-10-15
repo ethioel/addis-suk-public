@@ -14,6 +14,15 @@ import sys
 import asyncio
 import logging
 import threading
+
+# Satisfy HF Spaces ZeroGPU startup scan for @spaces.GPU function
+if os.getenv("SPACES_ZERO_GPU") == "1":
+    import spaces
+
+    @spaces.GPU
+    def _gpu_dummy():
+        return None
+
 from pathlib import Path
 
 # Configure logging early for HF Spaces
