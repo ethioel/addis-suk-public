@@ -75,8 +75,12 @@ jobs:
           HF_USERNAME: ${{ secrets.HF_USERNAME }}
           HF_SPACE_NAME: ${{ secrets.HF_SPACE_NAME }}
         run: |
+          # Configure git credentials using HF token
+          git config --global credential.helper store
+          echo "https://user:${HF_TOKEN}@huggingface.co" > ~/.git-credentials
+          
           # Add HF Spaces remote
-          git remote add spaces https://huggingface.co/spaces/${{ secrets.HF_USERNAME }}/${{ secrets.HF_SPACE_NAME }}
+          git remote add spaces https://huggingface.co/spaces/${HF_USERNAME}/${HF_SPACE_NAME}
           
           # Push to main branch (HF Spaces uses main)
           git push -f spaces main
