@@ -5,9 +5,10 @@ from pathlib import Path
 from aiogram import Bot, Dispatcher, F, Router
 from aiogram.filters import Command, CommandStart
 from aiogram.types import (
-    Message, CallbackQuery, InlineKeyboardBuilder,
+    Message, CallbackQuery,
     ReplyKeyboardMarkup, KeyboardButton
 )
+from aiogram.utils.keyboard import InlineKeyboardBuilder
 from aiogram.fsm.storage.memory import MemoryStorage
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
