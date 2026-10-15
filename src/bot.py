@@ -3,7 +3,7 @@ import logging
 import sys
 from pathlib import Path
 from aiogram import Bot, Dispatcher, F, Router
-from aiogram.filters import Command, CommandStart, CommandHelp
+from aiogram.filters import Command, CommandStart
 from aiogram.types import (
     Message, CallbackQuery, InlineKeyboardBuilder,
     ReplyKeyboardMarkup, KeyboardButton
