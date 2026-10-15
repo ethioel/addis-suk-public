@@ -1,6 +1,6 @@
 ---
 title: Addis Suk Bot
-emoji: 🐢
+emoji: 🛒
 colorFrom: indigo
 colorTo: pink
 sdk: gradio
