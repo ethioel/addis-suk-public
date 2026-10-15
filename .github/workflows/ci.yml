@@ -75,7 +75,7 @@ jobs:
           HF_USERNAME: ${{ secrets.HF_USERNAME }}
           HF_SPACE_NAME: ${{ secrets.HF_SPACE_NAME }}
         run: |
-          python -c "
+          cat > /tmp/deploy_to_hf.py << PYEOF
 from huggingface_hub import HfApi
 api = HfApi()
 api.upload_folder(
@@ -101,4 +101,5 @@ api.upload_folder(
     ]
 )
 print('✅ Successfully pushed to Hugging Face Spaces')
-"
+PYEOF
+          python /tmp/deploy_to_hf.py
