@@ -1,0 +1,95 @@
+# pyproject.toml for Addis Suk Bot
+# Modern Python project configuration
+
+[build-system]
+requires = ["setuptools>=68.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "addis-suk-bot"
+version = "1.0.0"
+description = "Telegram-based price comparison platform for Ethiopian markets"
+readme = "README.md"
+requires-python = ">=3.10"
+license = {text = "MIT"}
+authors = [
+    {name = "Addis Suk Team", email = "contact@addis-suk.et"}
+]
+keywords = ["telegram-bot", "ethiopia", "price-comparison", "aiogram"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Framework :: AsyncIO",
+    "Topic :: Communications :: Chat",
+]
+dependencies = [
+    "aiogram>=3.2.0,<4.0.0",
+    "python-dotenv>=1.0.0",
+    "aiosqlite>=0.20.0",
+    "typing-extensions>=4.0.0",
+    "flask>=3.0.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0.0",
+    "pytest-asyncio>=0.21.0",
+    "pytest-cov>=4.0.0",
+    "faker>=19.0.0",
+    "ruff>=0.4.0",
+    "black>=24.0.0",
+    "mypy>=1.0.0",
+    "pre-commit>=3.5.0",
+]
+
+[project.urls]
+Homepage = "https://github.com/ethioel/addis-suk-public"
+Documentation = "https://github.com/ethioel/addis-suk-public/blob/main/README.md"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["src*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"
+python_files = ["test_*.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]
+
+[tool.black]
+line-length = 100
+target-version = ["py310", "py311"]
+include = '\.pyi?$'
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+select = [
+    "E",  # pycodestyle errors
+    "W",  # pycodestyle warnings
+    "F",  # pyflakes
+    "I",  # isort
+    "B",  # flake8-bugbear
+]
+ignore = [
+    "E501",  # line too long (handled by black)
+]
+
+[tool.mypy]
+python_version = "3.11"
+warn_return_any = True
+warn_unused_configs = True
+disallow_untyped_defs = True
+disallow_incomplete_defs = True
+check_untyped_defs = True
+ignore_missing_imports = True
+
+[tool.isort]
+profile = "black"
+line_length = 100
