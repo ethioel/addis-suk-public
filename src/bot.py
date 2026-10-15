@@ -774,11 +774,11 @@ class AddisSukBot:
             await callback.answer()
 
     def _register_errors(self):
-        @self.dp.errors.register()
         async def error_handler(event: Any, exception: Exception):
             logger.error(f"Error: {exception}", exc_info=True)
             if isinstance(event, Message):
                 await event.answer("❌ An error occurred. Please try again.")
+        self.dp.errors.register(error_handler)
 
     async def _perform_search(self, message: Message, query: str, db: Database, user: dict, lang: str):
         await db.execute(
