@@ -82,7 +82,7 @@ jobs:
           # Add HF Spaces remote
           git remote add spaces https://huggingface.co/spaces/${HF_USERNAME}/${HF_SPACE_NAME}
           
-          # Push to main branch (HF Spaces uses main)
-          git push -f spaces main
+          # Push to main branch (HF Spaces uses main; no force - HF Spaces is shallow)
+          git push spaces main
           
           echo "✅ Successfully pushed to Hugging Face Spaces"
