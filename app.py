@@ -4,6 +4,12 @@
 # Uses Flask web server for health checks + Telegram bot polling
 
 import os
+
+# Suppress Hugging Face Spaces & PyTorch warnings (MUST BE AT THE VERY TOP)
+os.environ.setdefault("SPACES_ZERO_GPU", "1")
+os.environ.setdefault("GRADIO_ANALYTICS_ENABLED", "False")
+os.environ.setdefault("HF_HUB_DISABLE_TELEMETRY", "1")
+
 import sys
 import asyncio
 import logging
