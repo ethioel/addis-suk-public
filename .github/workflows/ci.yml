@@ -59,15 +59,15 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
       
-      - name: Set up Git
-        run: |
-          git config user.name "${{ github.actor }}"
-          git config user.email "${{ github.actor }}@users.noreply.github.com"
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
       
-      - name: Install git-lfs
+      - name: Install huggingface_hub
         run: |
-          sudo apt-get install -y git-lfs
-          git lfs install
+          pip install huggingface_hub
       
       - name: Push to Hugging Face Spaces
         env:
@@ -75,18 +75,30 @@ jobs:
           HF_USERNAME: ${{ secrets.HF_USERNAME }}
           HF_SPACE_NAME: ${{ secrets.HF_SPACE_NAME }}
         run: |
-          # Configure git credentials using HF token
-          git config --global credential.helper store
-          echo "https://user:${HF_TOKEN}@huggingface.co" > ~/.git-credentials
-          
-          # Add HF Spaces remote
-          git remote add spaces https://huggingface.co/spaces/${HF_USERNAME}/${HF_SPACE_NAME}
-          
-          # Fetch HF Space's initial commits and merge (favor our version on conflicts)
-          git fetch spaces
-          git merge -X ours spaces/main --allow-unrelated-histories -m "Merge HF Space initial commits"
-          
-          # Push to main branch (HF Spaces uses main)
-          git push spaces main
-          
-          echo "✅ Successfully pushed to Hugging Face Spaces"
+          python -c "
+from huggingface_hub import HfApi
+api = HfApi()
+api.upload_folder(
+    folder_path='.',
+    repo_id='${HF_USERNAME}/${HF_SPACE_NAME}',
+    repo_type='space',
+    token='${HF_TOKEN}',
+    commit_message='Deploy Addis Suk Bot from GitHub Actions',
+    ignore_patterns=[
+        '.git/**',
+        '__pycache__/**',
+        '*.pyc',
+        'data/**',
+        'logs/**',
+        '.env',
+        '.env.local',
+        '*.db',
+        '.pytest_cache/**',
+        '.ruff_cache/**',
+        '.mypy_cache/**',
+        '.vscode/**',
+        '.idea/**',
+    ]
+)
+print('✅ Successfully pushed to Hugging Face Spaces')
+"
