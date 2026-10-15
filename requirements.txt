@@ -1,5 +1,19 @@
-# Public Wrapper Dependencies Only
-# Core logic is distributed separately
+# Addis Suk Bot - Minimal Dependencies for Hugging Face Spaces
+# Optimized for zero GPU / free tier
 
 aiogram==3.2.0
-python-dotenv==1.0.0
+python-dotenv>=1.0.0
+aiosqlite>=0.20.0
+typing-extensions>=4.0.0
+
+# Web server for HF Spaces health checks
+flask>=3.0.0
+
+# Development dependencies (optional)
+# pytest>=7.0.0
+# pytest-asyncio>=0.21.0
+# pytest-cov>=4.0.0
+# faker>=19.0.0
+# ruff>=0.4.0
+# black>=24.0.0
+# mypy>=1.0.0
