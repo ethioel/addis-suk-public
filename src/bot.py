@@ -17,6 +17,14 @@ from typing import Any
 from src.config import load_config
 config = load_config()
 from src.models.database import Database, UserRole, SellerStatus
+
+
+def get_args(message: Message) -> str:
+    """Helper to extract command arguments in aiogram v3."""
+    if not message.text:
+        return ""
+    parts = message.text.split(maxsplit=1)
+    return parts[1] if len(parts) > 1 else ""
 from src.services import Services
 from src.locales import i18n
 from src.middleware import (
@@ -251,7 +259,7 @@ class AddisSukBot:
                 )
                 return
 
-            query = message.get_args()
+            query = get_args(message)
             if query:
                 await self._perform_search(message, query, db, user, lang)
             else:
@@ -280,7 +288,7 @@ class AddisSukBot:
 
         @self.router.message(Command("nearby"))
         async def cmd_nearby(message: Message, db: Database, user: dict, lang: str):
-            query = message.get_args()
+            query = get_args(message)
             if not user.get('latitude') or not user.get('longitude'):
                 keyboard = InlineKeyboardBuilder()
                 keyboard.button(text="📍 Share Location", request_location=True)
@@ -365,7 +373,7 @@ class AddisSukBot:
                 await message.answer("❌ You need to be an approved seller to add items."
                     if lang == 'en' else "❌ ምርቶችን ለማስገባት የተፈቀደለት ሻጭ መሆን አለብዎት።")
                 return
-            args = message.get_args().split()
+            args = get_args(message).split()
             if len(args) < 3:
                 await message.answer("Usage: /add [item] [price] [unit]\nExample: /add tomato 80 kg"
                     if lang == 'en' else "አጠቃቀም: /add [ምርት] [ዋጋ] [መለኪያ]\nለምሳሌ: /add ቲማቲም 80 ኪሎ")
@@ -405,7 +413,7 @@ class AddisSukBot:
 
         @self.router.message(Command("update"))
         async def cmd_update(message: Message, db: Database, user: dict, lang: str):
-            args = message.get_args().split()
+            args = get_args(message).split()
             if len(args) < 2:
                 await message.answer("Usage: /update [item] [price]\nExample: /update tomato 75")
                 return
@@ -428,7 +436,7 @@ class AddisSukBot:
 
         @self.router.message(Command("delete"))
         async def cmd_delete(message: Message, db: Database, user: dict, lang: str):
-            item_name = message.get_args()
+            item_name = get_args(message)
             if not item_name:
                 await message.answer("Usage: /delete [item]")
                 return
@@ -506,7 +514,7 @@ class AddisSukBot:
 
         @self.router.message(Command("alert"))
         async def cmd_alert_add(message: Message, db: Database, user: dict, lang: str):
-            args = message.get_args().split()
+            args = get_args(message).split()
             if len(args) < 2:
                 await message.answer("Usage: /alert [item] [target_price]\nExample: /alert tomato 50")
                 return
@@ -528,7 +536,7 @@ class AddisSukBot:
             if not user_info['is_premium']:
                 await message.answer("⭐ Premium feature. Use /subscribe to upgrade." if lang == 'en' else "⭐ የፕሪሚየም አገልግሎትን ለማሻሻል /subscribe ይጠቀሙ።")
                 return
-            query = message.get_args()
+            query = get_args(message)
             if not query:
                 await message.answer("Usage: /history [item]" if lang == 'en' else "አጠቃቀም: /history [ምርት]")
                 return
@@ -571,7 +579,7 @@ class AddisSukBot:
             if message.from_user.id not in config.ADMIN_IDS:
                 await message.answer("❌ Access denied." if lang == 'en' else "❌ ፍቃድ አልተሰጠዎትም።")
                 return
-            args = message.get_args().split()
+            args = get_args(message).split()
             if not args or not args[0].isdigit():
                 await message.answer("Usage: /approve_seller [id]")
                 return
@@ -582,7 +590,7 @@ class AddisSukBot:
         async def cmd_approve_price(message: Message, db: Database, lang: str):
             if message.from_user.id not in config.ADMIN_IDS:
                 return
-            args = message.get_args().split()
+            args = get_args(message).split()
             if not args or not args[0].isdigit():
                 await message.answer("Usage: /approve_price [id]")
                 return
@@ -593,7 +601,7 @@ class AddisSukBot:
         async def cmd_reject(message: Message, db: Database, lang: str):
             if message.from_user.id not in config.ADMIN_IDS:
                 return
-            args = message.get_args().split(None, 1)
+            args = get_args(message).split(None, 1)
             if len(args) < 1:
                 await message.answer("Usage: /reject [id] [reason]")
                 return
