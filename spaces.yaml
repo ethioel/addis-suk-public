@@ -1,0 +1,43 @@
+# Hugging Face Spaces Configuration
+# This file configures HF Spaces deployment for Addis Suk Bot
+# Place as: spaces.yaml or .huggingface/config.json
+
+# HF Spaces uses these environment variables from the HF UI:
+# BOT_TOKEN - Telegram Bot Token (from @BotFather)
+# ADMIN_IDS - Comma-separated list of admin Telegram IDs
+
+# The app.py file handles both:
+# 1. Web server on PORT (for HF health checks)
+# 2. Telegram bot polling (background task)
+
+# Minimal dependencies in requirements.txt ensure fast build
+# All Python code is pure Python (no compiled extensions)
+# No GPU required - runs on CPU
+
+# Build configuration
+build:
+  python_version: "3.11"
+  # HF Spaces automatically installs from requirements.txt
+  # No Dockerfile needed
+
+# Runtime configuration
+run:
+  # HF Spaces runs the app.py file automatically
+  # It will start a web server on the assigned PORT
+  # and the Telegram bot will poll in the background
+  command: "python -m src.app"
+
+# Environment variables (set via HF Secrets)
+env:
+  LOG_LEVEL: "INFO"
+  SEARCH_RADIUS_KM: "10"
+  FREE_SEARCH_LIMIT: "5"
+  FREE_ITEMS_LIMIT: "10"
+  PREMIUM_ALERTS_LIMIT: "10"
+  PRICE_HISTORY_DAYS: "30"
+  BUYER_PREMIUM_PRICE: "100"
+  SELLER_PREMIUM_PRICE: "250"
+  FEATURED_LISTING_PRICE: "50"
+  VERIFIED_BADGE_PRICE: "100"
+  PROMOTIONAL_BROADCAST_PRICE: "100"
+  BULK_DISCOUNT_FEATURE_PRICE: "150"
