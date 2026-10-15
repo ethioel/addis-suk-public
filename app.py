@@ -87,17 +87,21 @@ def main():
     """Start Flask web server and Telegram bot."""
     logger.info(f"Starting Addis Suk Bot - HF Spaces (port {PORT})")
     
-    # Start Telegram bot in background thread
-    bot_thread = threading.Thread(target=run_telegram_bot, daemon=True)
-    bot_thread.start()
+    # Start Flask web server in background daemon thread
+    flask_thread = threading.Thread(
+        target=lambda: app.run(host="0.0.0.0", port=PORT, threaded=True),
+        daemon=True
+    )
+    flask_thread.start()
+    logger.info("Flask health check server started in background thread.")
     
+    # Run Telegram bot polling in main thread (aiogram requires main thread for signal handlers)
     if os.getenv("BOT_TOKEN"):
-        logger.info("Telegram bot started in background thread.")
+        logger.info("Starting Telegram bot polling in main thread...")
+        from src.bot import main as bot_main
+        asyncio.run(bot_main())
     else:
         logger.warning("BOT_TOKEN not set. Only health check server will run.")
-    
-    # Start Flask web server (required by HF Spaces)
-    app.run(host="0.0.0.0", port=PORT, threaded=True)
 
 
 if __name__ == "__main__":
