@@ -14,9 +14,6 @@ BASE_DIR = Path(__file__).parent.parent
 DATA_DIR = BASE_DIR / "data"
 LOG_DIR = BASE_DIR / "logs"
 
-DATA_DIR.mkdir(parents=True, exist_ok=True)
-LOG_DIR.mkdir(parents=True, exist_ok=True)
-
 
 @dataclass
 class Config:
@@ -26,8 +23,13 @@ class Config:
     BOT_TOKEN: str = os.getenv("BOT_TOKEN", "")
     ADMIN_IDS: list[int] = field(default_factory=list)
 
+    # Paths
+    BASE_DIR: Path = field(default_factory=lambda: Path(__file__).parent.parent)
+    DATA_DIR: Path = field(default_factory=lambda: Path(__file__).parent.parent / "data")
+    LOG_DIR: Path = field(default_factory=lambda: Path(__file__).parent.parent / "logs")
+
     # Database
-    DB_PATH: str = str(DATA_DIR / "addis_suk.db")
+    DB_PATH: str = ""
 
     # Logging
     LOG_LEVEL: str = os.getenv("LOG_LEVEL", "INFO")
@@ -63,6 +65,11 @@ class Config:
     SEARCH_RADIUS_KM: float = float(os.getenv("SEARCH_RADIUS_KM", "10"))
 
     def __post_init__(self):
+        self.DB_PATH = str(self.DATA_DIR / "addis_suk.db")
+
+        self.DATA_DIR.mkdir(parents=True, exist_ok=True)
+        self.LOG_DIR.mkdir(parents=True, exist_ok=True)
+
         if not self.ADMIN_IDS:
             admin_ids_str = os.getenv("ADMIN_IDS", "")
             self.ADMIN_IDS = [int(id.strip()) for id in admin_ids_str.split(",") if id.strip()]
