@@ -841,7 +841,7 @@ class AddisSukBot:
 
     async def run(self):
         self.register_handlers()
-        await self.dp.start_polling(self.bot)
+        await self.dp.start_polling(self.bot, handle_signals=False)
 
 
 async def main():
