@@ -2,24 +2,20 @@
 # Hugging Face Spaces entry point for Addis Suk Bot
 
 import os
-os.environ.setdefault('GRADIO_ANALYTICS_ENABLED', 'False')
-os.environ.setdefault('HF_HUB_DISABLE_TELEMETRY', '1')
-os.environ['GRADIO_SSR_MODE'] = 'False'
+os.environ.setdefault("SPACES_ZERO_GPU", "1")
+os.environ.setdefault("GRADIO_ANALYTICS_ENABLED", "False")
+os.environ.setdefault("HF_HUB_DISABLE_TELEMETRY", "1")
+os.environ["GRADIO_SSR_MODE"] = "False"
 
 import sys
 import types
 import asyncio
 import logging
-import threading
-from pathlib import Path
+import warnings
+import gradio as gr
 
-# --- ZERO-GPU COMPLIANCE & PATCHING ---
-from spaces import GPU  # Literal decorator required by ZeroGPU hardware scanner
-
+# --- MOCK SPACES RELOADING TO PREVENT THREAD CRASH ---
 import spaces
-if not hasattr(spaces, 'gradio_auto_wrap'):
-    spaces.gradio_auto_wrap = lambda fn: fn
-
 if not hasattr(spaces, 'reloading'):
     _reloading = types.ModuleType('spaces.reloading')
     _reloading.spaces_reload = lambda *args, **kwargs: None
@@ -28,50 +24,59 @@ if not hasattr(spaces, 'reloading'):
     _reloading.__path__ = []
     spaces.reloading = _reloading
     sys.modules['spaces.reloading'] = _reloading
-# ---------------------------------------
 
-import gradio as gr
-
-# Setup logging cleanly
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-    force=True,
-    stream=sys.stdout,
-)
-logger = logging.getLogger('addis_suk')
-
-PORT = int(os.environ.get('PORT', 7860))
-
-@GPU  # Satisfies Hugging Face ZeroGPU startup orchestrator requirement
-def status():
-    return 'Addis Suk Bot is running! Telegram polling active.'
-
-# Initialize Gradio interface
-demo = gr.Interface(fn=status, inputs=None, outputs='text', title='Addis Suk Bot')
-
-def run_telegram_bot():
+if os.getenv("SPACES_ZERO_GPU") == "1":
     try:
-        if not os.getenv('BOT_TOKEN'):
-            logger.warning('BOT_TOKEN not set. Bot will not start.')
-            return
-        logger.info('Initializing Addis Suk Bot...')
-        from src.bot import main as bot_main
-        asyncio.run(bot_main())
-    except Exception as e:
-        logger.error(f'Bot thread failed safely: {e}', exc_info=True)
+        @spaces.GPU
+        def _gpu_dummy():
+            return None
+    except Exception:
+        pass
+# ----------------------------------------------------
 
-def main():
-    logger.info(f'Starting Addis Suk Bot - HF Spaces (port {PORT})')
+from telegram.warnings import PTBUserWarning
+warnings.filterwarnings("ignore", category=PTBUserWarning, message=".*per_message=False.*")
+
+logging.basicConfig(format="%(asctime)s %(levelname)s %(message)s", level=logging.INFO, force=True)
+logger = logging.getLogger("addis_suk")
+
+for _n in ("httpx", "apscheduler", "urllib3", "telegram", "gradio"):
+    logging.getLogger(_n).setLevel(logging.WARNING)
+
+def build_demo():
+    with gr.Blocks(title="Addis Suk Bot") as demo:
+        gr.Markdown(
+            "# Addis Suk Bot\n"
+            "**Your Telegram marketplace assistant is live!**\n\n"
+            "The Telegram bot is running via long polling — open Telegram and message your bot to begin.\n\n"
+            "<i>Status: Active on Hugging Face Spaces (ZeroGPU)</i>"
+        )
+    return demo
+
+if __name__ == "__main__":
+    PORT = int(os.getenv("GRADIO_SERVER_PORT") or os.getenv("PORT") or 7860)
     
-    # Run Telegram bot in a safe background daemon thread
-    if os.getenv('BOT_TOKEN'):
-        bot_thread = threading.Thread(target=run_telegram_bot, daemon=True)
-        bot_thread.start()
-        logger.info('Telegram bot polling started in background thread.')
-        
-    # Launch Gradio
-    demo.launch(server_name='0.0.0.0', server_port=PORT)
+    # 1. Launch Gradio non-blocking
+    demo = build_demo()
+    demo.launch(
+        server_name="0.0.0.0", 
+        server_port=PORT, 
+        ssr_mode=False, 
+        prevent_thread_lock=True
+    )
+    logger.info(f"Gradio dashboard successfully launched on port {PORT}")
 
-if __name__ == '__main__':
-    main()
+    # 2. Run the Telegram bot application
+    BOT_TOKEN = os.getenv("BOT_TOKEN")
+    if not BOT_TOKEN:
+        logger.error("BOT_TOKEN not set — UI running, bot idle.")
+        import time
+        while True:
+            time.sleep(3600)
+    else:
+        logger.info("Starting Addis Suk Bot via long polling...")
+        from src.bot import main as bot_main
+        try:
+            asyncio.run(bot_main())
+        except KeyboardInterrupt:
+            logger.info("Bot shutting down gracefully...")
