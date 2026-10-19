@@ -364,6 +364,7 @@ class ItemService:
                 i.created_at DESC
             LIMIT ? OFFSET ?
         """
+        
         params.extend([limit, offset])
         
         # Execute count
@@ -373,7 +374,7 @@ class ItemService:
         # Execute main query
         items = await self.db.fetchall(query_sql, params)
         
-        # Calculate distance if user location provided
+        # Calculate distance if user location provided, then sort by distance
         result_items = []
         for item in items:
             item_dict = dict(item)
@@ -384,6 +385,10 @@ class ItemService:
                 )
                 item_dict['distance_km'] = round(distance, 2)
             result_items.append(item_dict)
+        
+        # Sort by distance when location is provided
+        if user_lat is not None and user_lon is not None:
+            result_items.sort(key=lambda x: (x.get('featured_until') is None, x.get('distance_km', float('inf'))))
         
         return result_items, total_count
     
