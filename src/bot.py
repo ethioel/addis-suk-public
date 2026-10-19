@@ -289,6 +289,13 @@ class AddisSukBot:
 
         @self.router.message(Command("nearby"))
         async def cmd_nearby(message: Message, state: FSMContext, db: Database, user: dict, lang: str):
+            if not user:
+                user = await self.services.user.get_or_create_user(
+                    telegram_id=message.from_user.id,
+                    username=message.from_user.username,
+                    first_name=message.from_user.first_name,
+                    last_name=message.from_user.last_name
+                )
             query = get_args(message)
             if not user.get('latitude') or not user.get('longitude'):
                 keyboard = location_menu(lang)
