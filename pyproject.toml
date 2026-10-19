@@ -83,12 +83,12 @@ ignore = [
 
 [tool.mypy]
 python_version = "3.11"
-warn_return_any = True
-warn_unused_configs = True
-disallow_untyped_defs = True
-disallow_incomplete_defs = True
-check_untyped_defs = True
-ignore_missing_imports = True
+warn_return_any = true
+warn_unused_configs = true
+disallow_untyped_defs = true
+disallow_incomplete_defs = true
+check_untyped_defs = true
+ignore_missing_imports = true
 
 [tool.isort]
 profile = "black"
