@@ -33,6 +33,15 @@ logger = logging.getLogger('addis_suk')
 
 PORT = int(os.environ.get('PORT', 7860))
 
+# Gradio interface for HF Spaces
+import gradio as gr
+
+def status():
+    return 'Addis Suk Bot is running! Telegram polling active.'
+
+demo = gr.Interface(fn=status, inputs=None, outputs='text', title='Addis Suk Bot')
+
+# Flask app for health checks
 from flask import Flask, jsonify
 app = Flask(__name__)
 
@@ -52,21 +61,7 @@ def health_detailed():
         'cpu_only': True
     })
 
-@app.route('/metrics')
-def metrics():
-    return jsonify({
-        'service': 'addis-suk-bot',
-        'version': '1.0.0',
-        'platform': 'huggingface-spaces',
-        'free_tier': True,
-        'cpu_only': True,
-        'polling': True,
-        'bilingual': True,
-        'cities_supported': 10
-    })
-
 def run_telegram_bot():
-    global _bot_task
     if not os.getenv('BOT_TOKEN'):
         logger.warning('BOT_TOKEN not set. Bot will not start.')
         return
@@ -79,18 +74,13 @@ def run_telegram_bot():
 
 def main():
     logger.info(f'Starting Addis Suk Bot - HF Spaces (port {PORT})')
-    flask_thread = threading.Thread(
-        target=lambda: app.run(host='0.0.0.0', port=PORT, threaded=True),
-        daemon=True
-    )
-    flask_thread.start()
-    logger.info('Flask health check server started in background thread.')
+    # Run Telegram bot in background thread
     if os.getenv('BOT_TOKEN'):
-        logger.info('Starting Telegram bot polling in main thread...')
-        from src.bot import main as bot_main
-        asyncio.run(bot_main())
-    else:
-        logger.warning('BOT_TOKEN not set. Only health check server will run.')
+        bot_thread = threading.Thread(target=run_telegram_bot, daemon=True)
+        bot_thread.start()
+        logger.info('Telegram bot polling started in background thread.')
+    # Launch Gradio (HF Spaces expects this)
+    demo.launch(server_name='0.0.0.0', server_port=PORT)
 
 if __name__ == '__main__':
     main()

@@ -7,7 +7,7 @@ aiosqlite>=0.20.0
 typing-extensions>=4.0.0
 pydantic>=2.4.1,<2.6
 
-# Web server for HF Spaces health checks
+gradio>=4.0.0\n# Web server for HF Spaces health checks
 flask>=3.0.0
 
 # Development dependencies (optional)
