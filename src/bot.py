@@ -3,6 +3,7 @@ import logging
 import sys
 from pathlib import Path
 from aiogram import Bot, Dispatcher, F, Router
+from aiogram.client.default import DefaultBotProperties
 from aiogram.filters import Command, CommandStart
 from aiogram.types import (
     Message, CallbackQuery, ErrorEvent,
@@ -65,7 +66,7 @@ class Form(StatesGroup):
 class AddisSukBot:
 
     def __init__(self):
-        self.bot = Bot(token=config.BOT_TOKEN, parse_mode="Markdown")
+        self.bot = Bot(token=config.BOT_TOKEN, default=DefaultBotProperties(parse_mode="Markdown"))
         self.dp = Dispatcher(storage=MemoryStorage())
         self.db = Database(config.DB_PATH)
         self.services = Services(self.db)
