@@ -684,45 +684,73 @@ class AddisSukBot:
     def _register_callbacks(self):
         @self.router.callback_query(F.data == "language" or F.data.startswith("lang_"))
         async def cb_language(callback: CallbackQuery, db: Database, lang: str):
+            # Safely answer immediately to prevent Telegram query expiration timeouts
+            try:
+                await callback.answer()
+            except Exception:
+                pass  # Ignore if the query has already timed out or is invalid
             if callback.data.startswith("lang_"):
                 new_lang = callback.data.split("_")[1]
                 await self.services.user.update_user_language(callback.from_user.id, new_lang)
-                await callback.message.edit_text(
-                    "✅ Language updated!" if new_lang == 'en' else "✅ ቋንቋው ተዘምኗል!",
-                    reply_markup=None
-                )
-                await callback.answer()
+                try:
+                    await callback.message.edit_text(
+                        "✅ Language updated!" if new_lang == 'en' else "✅ ቋንቋው ተዘምኗል!",
+                        reply_markup=None
+                    )
+                except Exception:
+                    pass
             elif callback.data == "language":
+                try:
+                    await callback.message.edit_text(
+                        "🌍 Select language:" if lang == 'en' else "🌍 ቋንቋ ይምረጡ፦",
+                        reply_markup=language_selector()
+                    )
+                except Exception:
+                    await callback.message.answer("🌍 Select language:" if lang == 'en' else "🌍 ቋንቋ ይምረጡ፦")
+
+        @self.router.callback_query(F.data == "settings_language")
+        async def cb_settings_language(callback: CallbackQuery, db: Database, lang: str):
+            # Safely answer immediately to prevent Telegram query expiration timeouts
+            try:
+                await callback.answer()
+            except Exception:
+                pass  # Ignore if the query has already timed out or is invalid
+            try:
                 await callback.message.edit_text(
                     "🌍 Select language:" if lang == 'en' else "🌍 ቋንቋ ይምረጡ፦",
                     reply_markup=language_selector()
                 )
-
-        @self.router.callback_query(F.data == "settings_language")
-        async def cb_settings_language(callback: CallbackQuery, db: Database, lang: str):
-            await callback.message.edit_text(
-                "🌍 Select language:" if lang == 'en' else "🌍 ቋንቋ ይምረጡ፦",
-                reply_markup=language_selector()
-            )
-            await callback.answer()
+            except Exception:
+                await callback.message.answer("🌍 Select language:" if lang == 'en' else "🌍 ቋንቋ ይምረጡ፦")
 
         @self.router.callback_query(F.data == "settings_premium")
         async def cb_settings_premium(callback: CallbackQuery, db: Database, user: dict, lang: str):
+            # Safely answer immediately to prevent Telegram query expiration timeouts
+            try:
+                await callback.answer()
+            except Exception:
+                pass  # Ignore if the query has already timed out or is invalid
             info = await self.services.user.get_user_subscription_info(callback.from_user.id)
             status_text = "⭐ Your subscription is active" if info['is_premium'] else "⭐ No active subscription"
-            am_status_text = "⭐ አባል ነዎት" if info['is_premium'] else "⭐ አባል አይደሉም"
-            await callback.message.edit_text(
-                status_text if lang == 'en' else am_status_text,
-                reply_markup=subscription_keyboard()
-            )
-            await callback.answer()
+            am_status_text = "⭐ አባል ነዎት" if info['is_premium'] else "⭐ አ巴ል አይደልም"
+            try:
+                await callback.message.edit_text(
+                    status_text if lang == 'en' else am_status_text,
+                    reply_markup=subscription_keyboard()
+                )
+            except Exception:
+                await callback.message.answer(status_text if lang == 'en' else am_status_text)
 
         @self.router.callback_query(F.data.startswith("cat_"))
         async def cb_category(callback: CallbackQuery, db: Database, lang: str):
+            # Safely answer immediately to prevent Telegram query expiration timeouts
+            try:
+                await callback.answer()
+            except Exception:
+                pass  # Ignore if the query has already timed out or is invalid
             cat_id = int(callback.data.split("_")[1])
             category = await db.fetchone("SELECT * FROM categories WHERE id=?", (cat_id,))
             if not category:
-                await callback.answer("❌ Not found", show_alert=True)
                 return
             cat_name = category['name_am'] if lang == 'am' else category['name_en']
 
@@ -735,10 +763,13 @@ class AddisSukBot:
             )
             if not items:
                 msg = f"No items in {cat_name} yet." if lang == 'en' else f"በ{cat_name} ምድብ ውስጥ እስካሁን ምርቶች የሉም።"
-                await callback.message.edit_text(
-                    msg,
-                    reply_markup=main_menu(lang)
-                )
+                try:
+                    await callback.message.edit_text(
+                        msg,
+                        reply_markup=main_menu(lang)
+                    )
+                except Exception:
+                    await callback.message.answer(msg)
                 return
             parts = [f"📋 *{cat_name} - {len(items)} items*" if lang == 'en' else f"📋 *{cat_name} - {len(items)} ምርቶች*"]
             for item in items:
@@ -749,59 +780,106 @@ class AddisSukBot:
             for item in items[:5]:
                 keyboard.button(text=f"⭐", callback_data=f"fav_{item['id']}")
             keyboard.button(text="❌ Cancel", callback_data="cancel")
-            await callback.message.edit_text(
-                "\n".join(parts), reply_markup=keyboard.as_markup(), parse_mode="Markdown"
-            )
+            try:
+                await callback.message.edit_text(
+                    "\n".join(parts), reply_markup=keyboard.as_markup(), parse_mode="Markdown"
+                )
+            except Exception:
+                await callback.message.answer(
+                    "\n".join(parts), reply_markup=keyboard.as_markup()
+                )
 
         @self.router.callback_query(F.data.startswith("fav_"))
         async def cb_favorite(callback: CallbackQuery, db: Database, user: dict, lang: str):
+            # Safely answer immediately to prevent Telegram query expiration timeouts
+            try:
+                await callback.answer()
+            except Exception:
+                pass  # Ignore if the query has already timed out or is invalid
             item_id = int(callback.data.split("_")[1])
             info = await self.services.user.get_user_subscription_info(callback.from_user.id)
             if not info['is_premium']:
-                await callback.answer("⭐ Premium feature. Use /subscribe" if lang == 'en' else "⭐ የፕሪሚየም አገልግሎት። /subscribe ይጠቀሙ", show_alert=True)
                 return
             success = await self.services.favorite.add_favorite(user['id'], item_id)
             msg = "⭐ Added to favorites!" if success else "Already favorited!"
-            am_msg = "⭐ ተመራጭ ሆኗል!" if success else "ቀደም ሲል ተመራጭ ላይ አለ!"
-            await callback.answer(msg if lang == 'en' else am_msg)
+            am_msg = "⭐ ተመራጭ ሆኗል!" if success else "ቀደም ሲል ተራት ላይ አለ!"
+            try:
+                await callback.answer(msg if lang == 'en' else am_msg)
+            except Exception:
+                pass  # Ignore if the answer is no longer valid
 
         @self.router.callback_query(F.data.startswith("buy_premium_"))
         async def cb_buy_premium(callback: CallbackQuery, db: Database, user: dict, lang: str):
+            # Safely answer immediately to prevent Telegram query expiration timeouts
+            try:
+                await callback.answer()
+            except Exception:
+                pass  # Ignore if the query has already timed out or is invalid
             plan = callback.data.replace("buy_premium_", "")
             price = config.BUYER_PREMIUM_PRICE if plan == "buyer" else config.SELLER_PREMIUM_PRICE
             await db.execute(
                 "INSERT INTO transactions (user_id, type, amount, status) VALUES (?, ?, ?, 'pending')",
                 (user['id'], f"{plan}_premium", price)
             )
-            await callback.message.edit_text(
-                f"🧾 *Payment for {plan.title()} Premium*\n\n"
-                f"Amount: {price} Br\n\n"
-                f"Send payment to:\n📱 Telebirr: 0912345678\n"
-                f"After payment, send the receipt or use /verify_payment [reference]",
-                reply_markup=None, parse_mode="Markdown"
-            )
+            try:
+                await callback.message.edit_text(
+                    f"🧾 *Payment for {plan.title()} Premium*\n\n"
+                    f"Amount: {price} Br\n\n"
+                    f"Send payment to:\n📱 Telebirr: 0912345678\n"
+                    f"After payment, send the receipt or use /verify_payment [reference]",
+                    reply_markup=None, parse_mode="Markdown"
+                )
+            except Exception:
+                await callback.message.answer(
+                    f"🧾 *Payment for {plan.title()} Premium*\n\n"
+                    f"Amount: {price} Br\n\n"
+                    f"Send payment to:\n📱 Telebirr: 0912345678\n"
+                    f"After payment, send the receipt or use /verify_payment [reference]",
+                    parse_mode="Markdown"
+                )
 
         @self.router.callback_query(F.data.startswith("sell_premium_"))
         async def cb_sell_premium(callback: CallbackQuery, db: Database, user: dict, lang: str):
+            # Safely answer immediately to prevent Telegram query expiration timeouts
+            try:
+                await callback.answer()
+            except Exception:
+                pass  # Ignore if the query has already timed out or is invalid
             price = config.SELLER_PREMIUM_PRICE
             await db.execute(
                 "INSERT INTO transactions (user_id, type, amount, status) VALUES (?, ?, ?, 'pending')",
                 (user['id'], "seller_premium", price)
             )
-            await callback.message.edit_text(
-                "🧾 *Seller Premium Payment*\n\n"
-                f"Amount: {price} Br\n\n"
-                "Send payment to Telebirr: 0912345678 and send receipt.",
-                reply_markup=None, parse_mode="Markdown"
-            )
+            try:
+                await callback.message.edit_text(
+                    "🧾 *Seller Premium Payment*\n\n"
+                    f"Amount: {price} Br\n\n"
+                    "Send payment to Telebirr: 0912345678 and send receipt.",
+                    reply_markup=None, parse_mode="Markdown"
+                )
+            except Exception:
+                await callback.message.answer(
+                    "🧾 *Seller Premium Payment*\n\n"
+                    f"Amount: {price} Br\n\n"
+                    "Send payment to Telebirr: 0912345678 and send receipt.",
+                    parse_mode="Markdown"
+                )
 
         @self.router.callback_query(F.data == "cancel")
         async def cb_cancel(callback: CallbackQuery, lang: str):
-            await callback.message.edit_text(
-                "Cancelled." if lang == 'en' else "ተሰርዟል።",
-                reply_markup=main_menu(lang)
-            )
-            await callback.answer()
+            # Safely answer immediately to prevent Telegram query expiration timeouts
+            try:
+                await callback.answer()
+            except Exception:
+                pass  # Ignore if the query has already timed out or is invalid
+
+            try:
+                await callback.message.edit_text(
+                    "Cancelled." if lang == 'en' else "ተሰርዟል።",
+                    reply_markup=main_menu(lang)
+                )
+            except Exception:
+                await callback.message.answer("Cancelled." if lang == 'en' else "ተሰርዟል።")
 
     def _register_errors(self):
         async def error_handler(event: ErrorEvent):
