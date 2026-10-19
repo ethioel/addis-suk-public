@@ -78,17 +78,17 @@ class Config:
             "Addis Ababa": "አዲስ አበባ",
             "Bahir Dar": "ባህር ዳር",
             "Gondar": "ጎንደር",
-            "Mekelle": "መቄል",
-            "Hawassa": "strom",
-            "Dire Dawa": "idir",
-            "Jimma": "jimma",
-            "Harar": "hara",
-            "Debre Zeyit": "debre",
-            "Adama": "adama",
+            "Mekelle": "መቀሌ",
+            "Hawassa": "ሀዋሳ",
+            "Dire Dawa": "ድሬዳዋ",
+            "Jimma": "ጀምማ",
+            "Harar": "ሐረር",
+            "Debre Zeyit": "ደብረዘይት",
+            "Adama": "አዳማ",
         }
 
         self.ADDIS_SUB_CITIES = [
-            "Bole", "Megenagna", "Piazza", "Gerji", "Sar Bet",
+            "Addis Ketema", "Merkato","Akaki Kaliti","Lemi Kura","Kolfe Keranio", "Lideta", "Nifas Silk-Lafto", "Yeka", "Bole", "Mexico", "Megenagna", "Piazza", "Gerji", "Sar Bet",
             "Summit", "Kazanchis", "Arada", "Gulele", "Kirkos"
         ]
 
