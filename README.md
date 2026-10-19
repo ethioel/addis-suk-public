@@ -4,7 +4,7 @@ emoji: 🛒
 colorFrom: indigo
 colorTo: pink
 sdk: gradio
-sdk_version: 5.0.0
+sdk_version: 6.30.0
 app_file: app.py
 pinned: false
 ---
@@ -80,13 +80,28 @@ All other configuration uses defaults from `src/config.py`.
 | Command | Description |
 |---------|-------------|
 | `/start` | Welcome message |
-| `/search [item]` | Search prices |
-| `/categories` | Browse categories |
-| `/nearby [item]` | Find nearby sellers |
+| `/search [item]` | Search prices across sellers |
+| `/categories` | Browse categories with items |
+| `/nearby` | Find nearby sellers by location |
 | `/register` | Register as seller |
 | `/add [item] [price] [unit]` | Add item |
+| `/update [item] [price]` | Update item price |
+| `/delete [item]` | Delete item |
 | `/subscribe` | Upgrade to premium |
+| `/favorites` | View favorites (Premium) |
+| `/alert [item] [price]` | Set price alert (Premium) |
+| `/alerts` | Manage alerts (Premium) |
+| `/history [item]` | Price history (Premium) |
+| `/mylistings` | View your listings |
+| `/setlocation` | Save your location |
 | `/admin` | Admin dashboard |
+| `/approve_seller [id]` | Approve a seller |
+| `/approve_price [id]` | Approve an item |
+| `/reject [id] [reason]` | Reject an item |
+| `/broadcast` | Send broadcast message |
+| `/stats` | System statistics |
+| `/earnings` | Revenue report |
+| `/cancel` | Cancel current action |
 
 ---
 

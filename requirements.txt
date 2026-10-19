@@ -1,13 +1,15 @@
 # Addis Suk Bot - Minimal Dependencies for Hugging Face Spaces
 # Optimized for zero GPU / free tier
 
-aiogram==3.2.0
+aiogram>=3.13.1
 python-dotenv>=1.0.0
 aiosqlite>=0.20.0
 typing-extensions>=4.0.0
-pydantic>=2.4.1,<2.6
+pydantic>=2.11.10
 
-gradio>=4.0.0\n# Web server for HF Spaces health checks
+gradio==6.30.0
+
+# Web server for HF Spaces health checks
 flask>=3.0.0
 
 # Development dependencies (optional)
