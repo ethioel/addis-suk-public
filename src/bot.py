@@ -215,7 +215,7 @@ class AddisSukBot:
                 ),
                 'am': (
                     "🏪 *አዲስ ሱቅ v1.0*\n\n"
-                    "የኢትዮጵያ ደንበኞችን ከሀገር ውስጥ ሻጶች ጋር የሚያገናኝ በቴሌግራም ላይ የተመሠረተ የዋጋ ማወዳደሪያ መድረክ።\n\n"
+                    "የኢትዮጵያ ደንበኞችን ከሀገር ውስጥ ሱቆች ጋር የሚያገናኝ በቴሌግራም ላይ የተመሠረተ የዋጋ ማወዳደሪያ መድረክ።\n\n"
                     "🌍 ባለሁለት ቋንቋ፡ አማርኛ እና እንግሊዝኛ\n"
                     "📍 ከ10 በላይ ከተሞች፡ አዲስ አበባ፣ ባሕር ዳር፣ ጎንደር፣ መቐለ፣ ሀዋሳ...\n"
                     "🔒 ነፃ መሠረታዊ አገልግሎቶች ከተጨማሪ የፕሪሚየም ምርጫዎች ጋር\n\n"
@@ -287,17 +287,18 @@ class AddisSukBot:
                 reply_markup=keyboard.as_markup())
 
         @self.router.message(Command("nearby"))
-        async def cmd_nearby(message: Message, db: Database, user: dict, lang: str):
+        async def cmd_nearby(message: Message, state: FSMContext, db: Database, user: dict, lang: str):
             query = get_args(message)
             if not user.get('latitude') or not user.get('longitude'):
-                keyboard = InlineKeyboardBuilder()
-                keyboard.button(text="📍 Share Location", request_location=True)
-                keyboard.button(text="❌ Cancel", callback_data="cancel")
+                keyboard = location_menu(lang)
                 await message.answer(
                     "📍 Please share your location to find nearby sellers."
                         if lang == 'en' else "📍 በአቅራቢያዎ ያሉ ሱቆችን ለማግኘት እባክዎ መገኛ ቦታዎን (Location) ያጋሩ።",
-                    reply_markup=keyboard.as_markup()
+                    reply_markup=keyboard
                 )
+                if query:
+                    await state.set_state(Form.SEARCH_QUERY)
+                    await state.update_data(nearby_query=query)
                 return
 
             items, total = await self.services.item.search_items(
@@ -361,10 +362,16 @@ class AddisSukBot:
             await self.services.user.update_user_location(
                 user['telegram_id'], latitude=loc.latitude, longitude=loc.longitude
             )
-            await message.answer(
-                "✅ Location saved!" if lang == 'en' else "✅ መገኛዎ ተቀምጧል!",
-                reply_markup=main_menu(lang)
+            # Auto-set location and perform nearby search
+            await cmd_nearby_auto(message, loc.latitude, loc.longitude, lang)
+
+        async def cmd_nearby_auto(message: Message, lat: float, lon: float, lang: str):
+            """Auto-perform nearby search using shared location."""
+            from src.services import Services
+            items, total = await self.services.item.search_items(
+                query="", user_lat=lat, user_lon=lon, limit=20
             )
+            await self._display_results(message, items, total, lang, "nearby")
 
         @self.router.message(Command("add"))
         async def cmd_add(message: Message, db: Database, user: dict, lang: str):
