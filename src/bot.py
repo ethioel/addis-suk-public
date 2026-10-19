@@ -35,7 +35,7 @@ from src.middleware import (
 from src.keyboards import (
     main_menu, language_selector, search_keyboard,
     seller_keyboard, admin_keyboard, subscription_keyboard,
-    create_keyboard
+    create_keyboard, location_menu
 )
 
 logging.basicConfig(
