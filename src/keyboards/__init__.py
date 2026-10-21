@@ -12,6 +12,10 @@ def create_keyboard(rows: List[List[Tuple[str, str]]],
         for text, callback in row:
             builder.button(text=text, callback_data=callback)
     
+    # Adjust row sizes based on the input rows
+    if rows:
+        builder.adjust(*[len(row) for row in rows])
+    
     return builder.as_markup()
     
     
@@ -19,6 +23,14 @@ def main_menu(lang: str = 'en') -> InlineKeyboardMarkup:
     rows = [
         [('🔍 Search', 'search'), ('📋 Categories', 'categories')],
         [('📍 Nearby', 'nearby'), ('⚙️ Settings', 'settings')],
+    ]
+    return create_keyboard(rows)
+
+
+def settings_menu(lang: str = 'en') -> InlineKeyboardMarkup:
+    rows = [
+        [('🌍 Language', 'settings_language'), ('⭐ Premium', 'settings_premium')],
+        [('❌ Cancel', 'cancel')],
     ]
     return create_keyboard(rows)
 
