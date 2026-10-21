@@ -55,6 +55,8 @@ class UserMiddleware(BaseMiddleware):
         data: Dict[str, Any]
     ) -> Any:
         data['user'] = None
+        data['is_admin'] = False
+        data['user_role'] = 'buyer'
         if isinstance(event, (Message, CallbackQuery)):
             user_id = event.from_user.id
             db: Database = data.get('db')
@@ -64,7 +66,7 @@ class UserMiddleware(BaseMiddleware):
                 )
                 if user:
                     data['user'] = user
-                    data['is_admin'] = user_id in config.ADMIN_IDS
+                    data['is_admin'] = user_id in (config.ADMIN_IDS if config else [])
                     data['user_role'] = user['role']
         return await handler(event, data)
 
