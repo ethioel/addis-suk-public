@@ -9,9 +9,9 @@ from src.config import config
 
 class IsAdmin(BaseFilter):
     """Check if user is an admin."""
-
+    
     async def __call__(self, event: Union[Message, CallbackQuery], *args: Any) -> bool:
-        return event.from_user.id in config.ADMIN_IDS
+        return event.from_user.id in (config.ADMIN_IDS if config else [])
 
 
 class IsRegisteredSeller(BaseFilter):
