@@ -7,32 +7,16 @@ os.environ.setdefault("GRADIO_ANALYTICS_ENABLED", "False")
 os.environ.setdefault("HF_HUB_DISABLE_TELEMETRY", "1")
 os.environ["GRADIO_SSR_MODE"] = "False"
 
-import sys
-import types
 import asyncio
 import logging
 
-# --- 1. IMPORT SPACES & MOCK RELOADING ---
+# --- 1. CLEAN ZERO-GPU IMPORT (Let spaces manage its own reloading internals) ---
 import spaces
 
-if not hasattr(spaces, 'gradio_auto_wrap'):
-    spaces.gradio_auto_wrap = lambda fn: fn
-
-if not hasattr(spaces, 'reloading'):
-    _reloading = types.ModuleType('spaces.reloading')
-    _reloading.spaces_reload = lambda *args, **kwargs: None
-    _reloading.is_in_interactive_mode = lambda: False
-    _reloading.start_reload_server = lambda *args, **kwargs: None
-    _reloading.__path__ = []
-    spaces.reloading = _reloading
-    sys.modules['spaces.reloading'] = _reloading
-# ---------------------------------------------------------
-
-# --- 2. MANDATORY ZERO-GPU PROBE FUNCTION (Satisfies static scan) ---
 @spaces.GPU
 def _zerogpu_probe():
     return "active"
-# -------------------------------------------------------------------
+# ------------------------------------------------------------------------------
 
 import gradio as gr
 
@@ -49,10 +33,10 @@ def build_demo():
             "# Addis Suk Bot\n"
             "**Your Telegram marketplace assistant is live!**\n\n"
             "The Telegram bot is running via long polling — open Telegram and message your bot to begin.\n\n"
-            "<i>Status: Active on Hugging Face Spaces (ZeroGPU)</i>"
+            "<i>Status: Active on Hugging Face Spaces</i>"
         )
         
-        # Hidden component binding to register the GPU probe during launch
+        # Hidden component to safely trigger the GPU probe initialization
         hidden_out = gr.Textbox(visible=False)
         demo.load(fn=_zerogpu_probe, inputs=None, outputs=hidden_out)
         
@@ -61,7 +45,7 @@ def build_demo():
 if __name__ == "__main__":
     PORT = int(os.getenv("GRADIO_SERVER_PORT") or os.getenv("PORT") or 7860)
     
-    # 1. Launch Gradio non-blocking (Triggers ZeroGPU client registration)
+    # 1. Launch Gradio non-blocking
     demo = build_demo()
     demo.launch(
         server_name="0.0.0.0", 
