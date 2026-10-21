@@ -46,8 +46,8 @@ class TestFavoriteService:
             (1, "TestUser")
         )
         await services.execute(
-            "INSERT INTO sellers (user_id, shop_name, address, phone, city) VALUES (?, ?, ?, ?, ?)",
-            (1, "Test Shop", "Addr", "0912345678", "Addis")
+            "INSERT INTO sellers (user_id, shop_name, address, phone, city, status) VALUES (?, ?, ?, ?, ?, ?)",
+            (1, "Test Shop", "Addr", "0912345678", "Addis", "approved")
         )
         await services.execute(
             "INSERT INTO items (seller_id, category_id, name_en, name_am, price, unit, status) VALUES (?, ?, ?, ?, ?, ?, 'approved')",

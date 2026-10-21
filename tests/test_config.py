@@ -1,6 +1,7 @@
 """Tests for configuration."""
 import pytest
 from src.config import config, Config
+from src.locales import i18n as i18n
 
 
 class TestConfig:

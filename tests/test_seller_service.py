@@ -105,6 +105,10 @@ class TestItemService:
             name_en="Tomato", name_am="ቲማቲም",
             price=80.0, unit="kg"
         )
+        # Set item status to approved for search testing
+        await item_service.db.execute(
+            "UPDATE items SET status = 'approved' WHERE name_en = 'Tomato'"
+        )
         items, total = await item_service.search_items(query="tomato", limit=10)
         assert total >= 1
     
