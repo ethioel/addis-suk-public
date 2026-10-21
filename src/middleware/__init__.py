@@ -65,7 +65,8 @@ class UserMiddleware(BaseMiddleware):
                     "SELECT * FROM users WHERE telegram_id = ?", (user_id,)
                 )
                 if user:
-                    data['user'] = user
+                    # Convert sqlite3.Row to dict for consistency with code that expects dict methods
+                    data['user'] = dict(user)
                     data['is_admin'] = user_id in (config.ADMIN_IDS if config else [])
                     data['user_role'] = user['role']
         return await handler(event, data)
