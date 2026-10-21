@@ -61,6 +61,7 @@ class Form(StatesGroup):
     ITEM_UNIT = State()
     ALERT_PRICE = State()
     BROADCAST_MESSAGE = State()
+    VERIFY_PAYMENT = State()
 
 
 class AddisSukBot:
@@ -84,14 +85,14 @@ class AddisSukBot:
 
     async def _seed_categories(self):
         categories = [
-            ("Vegetables", "አትክልት", "🌿"),
+            ("Vegetables", "የአቲካል ወተት", "🥦"),
             ("Fruits", "ፍራፍሬ", "🍎"),
             ("Meat", "ሥጋ", "🥩"),
             ("Dairy", "ወተት", "🥛"),
             ("Bakery", "ዳቦ", "🍞"),
             ("Grains", "እህል", "🌾"),
             ("Coffee", "ቡና", "☕"),
-            ("Household", "የቤት እቃ", "🧴"),
+            ("Household", "የቤት ሰረዝ", "🧴"),
         ]
         for i, (name_en, name_am, emoji) in enumerate(categories):
             await self.db.execute(
@@ -100,6 +101,16 @@ class AddisSukBot:
             )
         logger.info("Categories seeded successfully.")
 
+    async def _seed_demo_data(self):
+        """Seed demonstration shops/items if the database is empty."""
+        try:
+            from src.seed_data import seed_database
+            seeded = await seed_database(self.db)
+            if seeded:
+                logger.info("Demo shops and items seeded.")
+        except Exception as e:
+            logger.warning(f"Demo seeding skipped: {e}")
+
     def _register_startup(self):
         @self.dp.startup.register
         async def on_startup(dispatcher: Dispatcher, bot: Bot):
@@ -107,6 +118,7 @@ class AddisSukBot:
                 await self.db.init()
                 logger.info("Database initialized.")
                 await self._seed_categories()
+                await self._seed_demo_data()
             except Exception as e:
                 logger.error(f"Startup error: {e}")
 
@@ -156,6 +168,76 @@ class AddisSukBot:
             await message.answer(
                 welcome_text.get(lang, welcome_text['en']),
                 reply_markup=main_menu(lang)
+            )
+
+        @self.router.message(Command("cancel"))
+        async def cmd_cancel(message: Message, state: FSMContext, lang: str):
+            await state.clear()
+            await message.answer(
+                "Cancelled." if lang == 'en' else "ተሰርዟል።",
+                reply_markup=main_menu(lang)
+            )
+
+        @self.router.message(Form.LANGUAGE_SELECT)
+        async def language_select_handler(message: Message, state: FSMContext, db: Database, user: dict, lang: str):
+            text = message.text.strip().lower()
+            if text in ('english', 'en', 'eng'):
+                language = 'en'
+            elif text in ('አማርኛ', 'amharic', 'am', 'amh'):
+                language = 'am'
+            else:
+                await message.answer(
+                    "🌍 Please select your language / እብዎ ቋንቋ ይምርጡ" if lang == 'en' else "🌍 እብዎ ቋንቋ ይምርጡ",
+                    reply_markup=language_selector()
+                )
+                return
+            if user:
+                await self.services.user.update_user_language(user['telegram_id'], language)
+            await state.clear()
+            await message.answer(
+                "✅ Language set!" if lang == 'en' else "✅ ቋንቋ ተወን ሆነ!",
+                reply_markup=main_menu(language)
+            )
+
+        @self.router.message(Command("verify_payment"))
+        async def cmd_verify_payment(message: Message, state: FSMContext, db: Database, user: dict, lang: str):
+            from src.services import Services
+            services = Services(db)
+            # Check if user has a pending payment
+            pending = await db.fetchone(
+                "SELECT * FROM payments WHERE user_id = ? AND status = 'pending' ORDER BY created_at DESC LIMIT 1",
+                (user['id'],)
+            )
+            if not pending:
+                await message.answer(
+                    "No pending payments found." if lang == 'en' else "የተገኘ ክፍያ የለም"
+                )
+                return
+            await state.set_state(Form.VERIFY_PAYMENT)
+            await state.update_data(payment_id=pending['id'])
+            await message.answer(
+                "📸 Send the payment receipt screenshot (photo) to verify."
+                if lang == 'en' else "📸 የ_ovverify ማወቂያ ስወል ይላኩ"
+            )
+
+        @self.router.message(Form.VERIFY_PAYMENT, lambda m: m.content_type == "PHOTO")
+        async def verify_payment_handler(message: Message, state: FSMContext, db: Database, user: dict, lang: str):
+            from src.services import Services
+            services = Services(db)
+            data = await state.get_data()
+            payment_id = data.get('payment_id')
+            if not payment_id:
+                await state.clear()
+                return
+            # Mark payment as verified
+            await db.execute(
+                "UPDATE payments SET status = 'verified', verified_at = CURRENT_TIMESTAMP WHERE id = ?",
+                (payment_id,)
+            )
+            await state.clear()
+            await message.answer(
+                "✅ Payment verified! Thank you for your support."
+                if lang == 'en' else "✅ ክፍያ ተወን ሆነ! ስለ ድilent ..."
             )
 
         @self.router.message(Command("help"))
@@ -409,6 +491,51 @@ class AddisSukBot:
                 if lang == 'en' else f"✅ ምርቱ ተጨምሯል! መለያ ቁጥር (ID): {item_id} - ማጽደቅን በመጠበቅ ላይ።"
             )
 
+        @self.router.message(Command("additem"))
+        async def cmd_additem(message: Message, state: FSMContext, db: Database, user: dict, lang: str):
+            seller = await self.services.seller.get_seller_by_user_id(user['id'])
+            if not seller or seller['status'] != 'approved':
+                await message.answer("❌ You need to be an approved seller to add items."
+                    if lang == 'en' else "❌ ምርቶችን ለማስገባት የተፈቀደለት ሻጭ መሆን አለብዎት።")
+                return
+            await state.set_state(Form.ITEM_NAME)
+            await message.answer("📝 Enter item name:" if lang == 'en' else "📝 የሚጨመቅበትን ምርት ያስገቡ፦")
+
+        @self.router.message(Form.ITEM_NAME)
+        async def seller_item_name_handler(message: Message, state: FSMContext, db: Database, user: dict, lang: str):
+            await state.update_data(name=message.text)
+            await state.set_state(Form.ITEM_PRICE)
+            await message.answer("💰 Enter price (Br):" if lang == 'en' else "💰 ዋጋ ያስገቡ (ብር):")
+
+        @self.router.message(Form.ITEM_PRICE)
+        async def seller_item_price_handler(message: Message, state: FSMContext, db: Database, user: dict, lang: str):
+            try:
+                price = float(message.text)
+                await state.update_data(price=price)
+                await state.set_state(Form.ITEM_UNIT)
+                await message.answer("📦 Enter unit (e.g., kg, piece):" if lang == 'en' else "📦 መለኪያ ያስገቡ (ለምሳሌ፦ ኪሎ፣ አካል):")
+            except ValueError:
+                await message.answer("❌ Invalid price format. Example: 80" if lang == 'en' else "❌ ትክክል ያልሆነ የዋጋ ግብአት። ለምሳሌ፦ 80")
+
+        @self.router.message(Form.ITEM_UNIT)
+        async def seller_item_unit_handler(message: Message, state: FSMContext, db: Database, user: dict, lang: str):
+            data = await state.get_data()
+            seller = await self.services.seller.get_seller_by_user_id(user['id'])
+            if not seller or seller['status'] != 'approved':
+                await state.clear()
+                return
+            category = await db.fetchone("SELECT id FROM categories WHERE is_active = 1 ORDER BY display_order LIMIT 1")
+            category_id = category['id'] if category else 1
+            success, item_id = await self.services.item.add_item(
+                seller_id=seller['id'], category_id=category_id,
+                name_en=data['name'], name_am=data['name'], price=data['price'], unit=message.text
+            )
+            await state.clear()
+            await message.answer(
+                f"✅ Item added! ID: {item_id} - awaiting approval."
+                if lang == 'en' else f"✅ ምርቱ ተጨምሯል! መለያ ቁጥር (ID): {item_id} - ማጽደቅን በመጠበቅ ላይ።"
+            )
+
         @self.router.message(Command("mylistings"))
         async def cmd_mylistings(message: Message, db: Database, user: dict, lang: str):
             seller = await self.services.seller.get_seller_by_user_id(user['id'])
@@ -528,22 +655,41 @@ class AddisSukBot:
             await message.answer("\n".join(parts), parse_mode="Markdown")
 
         @self.router.message(Command("alert"))
-        async def cmd_alert_add(message: Message, db: Database, user: dict, lang: str):
+        async def cmd_alert_add(message: Message, state: FSMContext, db: Database, user: dict, lang: str):
             args = get_args(message).split()
-            if len(args) < 2:
-                await message.answer("Usage: /alert [item] [target_price]\nExample: /alert tomato 50")
-                return
             user_info = await self.services.user.get_user_subscription_info(message.from_user.id)
             if not user_info['is_premium']:
                 await message.answer("⭐ Premium feature. Use /subscribe to upgrade." if lang == 'en' else "⭐ የፕሪሚየም አገልግሎት። ለማሻሻል /subscribe ይጠቀሙ።")
                 return
-            try:
-                target = float(args[1])
-            except ValueError:
-                await message.answer("❌ Invalid price format." if lang == 'en' else "❌ ትክክል ያልሆነ የዋጋ ግብአት።")
+            if len(args) >= 2:
+                try:
+                    target = float(args[1])
+                    success, alert_id = await self.services.alert.create_alert(user['id'], args[0], target)
+                    await message.answer(f"🔔 Alert created! You'll be notified when {args[0]} is at or below {target} Br." if lang == 'en' else f"🔔 ማሳወቂያ ተፈጥሯል! {args[0]} ከ {target} ብር ወይም በታች ሲሆን ማሳወቂያ ይደርስዎታል።")
+                    return
+                except ValueError:
+                    await message.answer("❌ Invalid price format." if lang == 'en' else "❌ ትክክል ያልሆነ የዋጋ ግብአት።")
+                    return
+            # Interactive mode
+            await state.set_state(Form.ALERT_PRICE)
+            await state.update_data(item_name=args[0] if args else "")
+            await message.answer("🔔 Enter item name for price alert:" if lang == 'en' else "🔔 ለዋጋ ማሳወቂያ የምርቱን ስም ያስገቡ፦")
+
+        @self.router.message(Form.ALERT_PRICE)
+        async def alert_price_handler(message: Message, state: FSMContext, db: Database, user: dict, lang: str):
+            data = await state.get_data()
+            if not data.get('item_name'):
+                await state.update_data(item_name=message.text)
+                await message.answer("💰 Enter target price (Br):" if lang == 'en' else "💰 የተመርጠውን ዋጋ ያስገቡ (ብር):")
                 return
-            success, alert_id = await self.services.alert.create_alert(user['id'], args[0], target)
-            await message.answer(f"🔔 Alert created! You'll be notified when {args[0]} is at or below {target} Br." if lang == 'en' else f"🔔 ማሳወቂያ ተፈጥሯል! {args[0]} ከ {target} ብር ወይም በታች ሲሆን ማሳወቂያ ይደርስዎታል።")
+            try:
+                target = float(message.text)
+                item_name = data['item_name']
+                success, alert_id = await self.services.alert.create_alert(user['id'], item_name, target)
+                await state.clear()
+                await message.answer(f"🔔 Alert created! You'll be notified when {item_name} is at or below {target} Br." if lang == 'en' else f"🔔 ማሳወቂያ ተፈጥሯል! {item_name} ከ {target} ብር ወይም በታች ሲሆን ማሳወቂያ ይደርስዎታል።")
+            except ValueError:
+                await message.answer("❌ Invalid price format. Example: 50" if lang == 'en' else "❌ ትክክል ያልሆነ የዋጋ ግብአት። ለምሳሌ፦ 50")
 
         @self.router.message(Command("history"))
         async def cmd_history(message: Message, db: Database, user: dict, lang: str):
@@ -905,30 +1051,28 @@ class AddisSukBot:
                 await callback.answer()
             except Exception:
                 pass
-            if not user:
-                user = await self.services.user.get_or_create_user(
-                    telegram_id=callback.from_user.id,
-                    username=callback.from_user.username,
-                    first_name=callback.from_user.first_name,
-                    last_name=callback.from_user.last_name
+            try:
+                from src.services import Services
+                services = Services(db)
+                user_info = await services.user.get_user_subscription_info(callback.from_user.id)
+                search_count = await db.fetchone(
+                    "SELECT COUNT(*) as cnt FROM search_logs WHERE user_id = ? AND date(created_at) = date('now')",
+                    (user['id'],)
                 )
-            user_info = await self.services.user.get_user_subscription_info(callback.from_user.id)
-            search_count = await db.fetchone(
-                "SELECT COUNT(*) as cnt FROM search_logs WHERE user_id = ? AND date(created_at) = date('now')",
-                (user['id'],)
-            )
-            count = search_count['cnt'] if search_count else 0
-            if not user_info['is_premium'] and count >= config.FREE_SEARCH_LIMIT:
-                try:
-                    await callback.message.edit_text(
-                        "⚠️ You've reached your daily free limit (5 searches).\n"
-                        "Upgrade to Premium for unlimited searches!\n/subscribe" if lang == 'en' else
-                        "⚠️ የዕለት ነፃ ፍለጋ ገደብዎን (5 ፍለጋዎች) ጨርሰዋል።፣\nላልተገደበ ፍለጋ ወደ ፕሪሚየም ያሻሽሉ!",
-                        reply_markup=subscription_keyboard()
-                    )
-                except Exception:
-                    await callback.message.answer("Upgrade to Premium for unlimited searches!")
-                return
+                count = search_count['cnt'] if search_count else 0
+                if not user_info['is_premium'] and count >= config.FREE_SEARCH_LIMIT:
+                    try:
+                        await callback.message.edit_text(
+                            "⚠️ You've reached your daily free limit (5 searches).\n"
+                            "Upgrade to Premium for unlimited searches!\n/subscribe" if lang == 'en' else
+                            "⚠️ የዕለት ነፃ ፍለጋ ገደብ (5 ፍለጋዎች) ጨርሰዋል።\nላልተገደብ ፍለጋ ወደ ፕሪሚየም ያሻሽሉ!\n/subscribe",
+                            reply_markup=subscription_keyboard()
+                        )
+                    except Exception:
+                        await callback.message.answer("Upgrade to Premium for unlimited searches!")
+                    return
+            except Exception:
+                pass
             try:
                 await callback.message.edit_text(
                     "🔍 Enter item name (e.g., tomato)" if lang == 'en' else "🔍 የሚፈልጉትን ምርት ስም ያስገቡ (ለምሳሌ፦ ቲማቲም)",
@@ -937,6 +1081,202 @@ class AddisSukBot:
             except Exception:
                 await callback.message.answer("Enter item name (e.g., tomato)")
             await state.set_state(Form.SEARCH_QUERY)
+
+        @self.router.callback_query(F.data.startswith("seller_"))
+        async def cb_seller(callback: CallbackQuery, db: Database, user: dict, lang: str):
+            # Safely answer immediately to prevent Telegram query expiration timeouts
+            try:
+                await callback.answer()
+            except Exception:
+                pass
+            if not callback.data.startswith("seller_"):
+                return
+            
+            seller_id = int(callback.data.split("_")[1])
+            # Verify the seller exists and is approved
+            seller = await db.fetchone("SELECT * FROM sellers WHERE id = ?", (seller_id,))
+            if not seller or seller['status'] != 'approved':
+                try:
+                    await callback.message.edit_text(
+                        "❌ Seller not found or not approved." if lang == 'en' else "❌ ሻሹን የላለ ወሰን የላለ"
+                    )
+                except Exception:
+                    await callback.message.answer("Seller not found or not approved.")
+                return
+            
+            # Get items for this seller
+            from src.services import Services
+            services = Services(db)
+            items = await services.item.get_seller_items(seller_id)
+            
+            # Build the response
+            try:
+                if items:
+                    parts = [f"🏪 *{seller['shop_name']}*\n"]
+                    parts.append(f"📍 {seller['address']}, {seller['city']}\n")
+                    parts.append(f"📞 {seller['phone']}\n")
+                    parts.append(f"⭐ {len(items)} items available\n")
+                    parts.append("--- Items ---\n")
+                    for i, item in enumerate(items[:10], 1):
+                        name = item['name_am'] if lang == 'am' else item['name_en']
+                        price = item['price']
+                        unit = item['unit']
+                        distance = f"📍{item.get('distance_km', 'N/A')}km" if item.get('distance_km') else ""
+                        parts.append(f"{i}. {name}: {price} {unit} {distance}")
+                    
+                    # If more than 10 items, show a button to view all
+                    if len(items) > 10:
+                        keyboard = InlineKeyboardBuilder()
+                        keyboard.button(text="View All Items", callback_data=f"seller_all_{seller_id}")
+                        keyboard.button(text="❌ Close", callback_data="cancel")
+                    else:
+                        keyboard = InlineKeyboardBuilder()
+                        keyboard.button(text="❌ Close", callback_data="cancel")
+                else:
+                    parts = [f"🏪 *{seller['shop_name']}*\n"]
+                    parts.append(f"📍 {seller['address']}, {seller['city']}\n")
+                    parts.append(f"📞 {seller['phone']}\n")
+                    parts.append("❌ No items available currently.")
+                    keyboard = InlineKeyboardBuilder()
+                    keyboard.button(text="❌ Close", callback_data="cancel")
+                
+                await callback.message.edit_text(
+                    "\n".join(parts), reply_markup=keyboard.as_markup(), parse_mode="Markdown"
+                )
+            except Exception:
+                # If edit fails, send as new message
+                await callback.message.answer(
+                    "\n".join(parts), reply_markup=keyboard.as_markup(), parse_mode="Markdown"
+                )
+
+        @self.router.callback_query(F.data.startswith("seller_all_"))
+        async def cb_seller_all_items(callback: CallbackQuery, db: Database, lang: str):
+            # Safely answer immediately to prevent Telegram query expiration timeouts
+            try:
+                await callback.answer()
+            except Exception:
+                pass
+            seller_id = int(callback.data.split("_")[1])
+            seller = await db.fetchone("SELECT * FROM sellers WHERE id = ?", (seller_id,))
+            if not seller or seller['status'] != 'approved':
+                return
+            
+            from src.services import Services
+            services = Services(db)
+            items = await services.item.get_seller_items(seller_id)
+            
+            if not items:
+                return
+            
+            try:
+                parts = [f"🏪 *{seller['shop_name']}* - All Items\n"]
+                parts.append(f"📍 {seller['address']}, {seller['city']}\n")
+                parts.append(f"📞 {seller['phone']}\n")
+                parts.append("--- Items ---\n")
+                for i, item in enumerate(items, 1):
+                    name = item['name_am'] if lang == 'am' else item['name_en']
+                    price = item['price']
+                    unit = item['unit']
+                    category = item['category_name_am'] if lang == 'am' else item['category_name_en']
+                    distance = f"📍{item.get('distance_km', 'N/A')}km" if item.get('distance_km') else ""
+                    parts.append(f"{i}. {name} ({category}): {price} {unit} {distance}")
+                
+                keyboard = InlineKeyboardBuilder()
+                keyboard.button(text="← Back to Shop", callback_data=f"seller_{seller_id}")
+                keyboard.button(text="❌ Close", callback_data="cancel")
+                
+                await callback.message.edit_text(
+                    "\n".join(parts), reply_markup=keyboard.as_markup(), parse_mode="Markdown"
+                )
+            except Exception:
+                # If edit fails, send as new message
+                await callback.message.answer(
+                    "\n".join(parts), reply_markup=keyboard.as_markup(), parse_mode="Markdown"
+                )
+
+        @self.router.callback_query(F.data == "search_shops")
+        async def cb_search_shops(callback: CallbackQuery, state: FSMContext, db: Database, user: dict, lang: str):
+            # Safely answer immediately to prevent Telegram query expiration timeouts
+            try:
+                await callback.answer()
+            except Exception:
+                pass
+            try:
+                from src.services import Services
+                services = Services(db)
+                user_lat = user['latitude'] if user else None
+                user_lon = user['longitude'] if user else None
+                shops = await services.seller.search_shops(user_lat=user_lat, user_lon=user_lon, limit=10)
+                
+                if not shops:
+                    await callback.message.answer(
+                        "🔍 No shops found in your area. Try searching from a location." if lang == 'en' else
+                        "🔍 እባክዎ የወሳቸኛ እርስጥ አሉ። አቅራቢያ ከማይካ ይጠቀም።"
+                    )
+                    return
+                
+                parts = ["🔍 *Shops Near You*\n"]
+                for i, shop in enumerate(shops[:5], 1):
+                    distance = f"📍{shop.get('distance_km', 'N/A')}km" if shop.get('distance_km') else ""
+                    items_count = shop.get('item_count', 0)
+                    parts.append(f"{i}. *{shop['shop_name']}* - {items_count} items {distance}")
+                    parts.append(f"   📍 {shop['city']}, {shop['address']}\n")
+                
+                keyboard = InlineKeyboardBuilder()
+                if len(shops) > 5:
+                    keyboard.button(text="View More Shops", callback_data="view_all_shops")
+                keyboard.button(text="❌ Close", callback_data="cancel")
+                
+                await callback.message.edit_text(
+                    "\n".join(parts), reply_markup=keyboard.as_markup(), parse_mode="Markdown"
+                )
+            except Exception:
+                await callback.message.answer("Unable to load shops list.")
+
+        @self.router.callback_query(F.data == "view_all_shops")
+        async def cb_view_all_shops(callback: CallbackQuery, db: Database, user: dict, lang: str):
+            # Safely answer immediately to prevent Telegram query expiration timeouts
+            try:
+                await callback.answer()
+            except Exception:
+                pass
+            try:
+                from src.services import Services
+                services = Services(db)
+                user_lat = user['latitude'] if user else None
+                user_lon = user['longitude'] if user else None
+                shops = await services.seller.search_shops(user_lat=user_lat, user_lon=user_lon, limit=50)
+                
+                if not shops:
+                    await callback.message.answer(
+                        "🔍 No shops found in your area. Try searching from a location." if lang == 'en' else
+                        "🔍 እባክዎ የወሳቸኛ እርስጥ አሉ። አቅራቢያ ከማይካ ይጠቀም።"
+                    )
+                    return
+                
+                parts = ["🔍 *All Shops Near You*\n"]
+                for i, shop in enumerate(shops, 1):
+                    distance = f"📍{shop.get('distance_km', 'N/A')}km" if shop.get('distance_km') else ""
+                    items_count = shop.get('item_count', 0)
+                    min_price = shop.get('min_price', 0)
+                    max_price = shop.get('max_price', 0)
+                    price_range = f"{min_price}-{max_price}" if min_price and max_price and min_price != max_price else f"{min_price}"
+                    parts.append(f"{i}. *{shop['shop_name']}* - {items_count} items {distance}")
+                    parts.append(f"   📍 {shop['city']}, {shop['address']}\n")
+                    parts.append(f"   💰 Price range: {price_range}\n")
+                    parts.append("")
+                
+                keyboard = InlineKeyboardBuilder()
+                if len(shops) > 10:
+                    keyboard.button(text="Show More", callback_data="view_all_shops")
+                keyboard.button(text="← Back to Search", callback_data="search")
+                keyboard.button(text="❌ Close", callback_data="cancel")
+                
+                await callback.message.edit_text(
+                    "\n".join(parts), reply_markup=keyboard.as_markup(), parse_mode="Markdown"
+                )
+            except Exception:
+                await callback.message.answer("Unable to load shops list.")
 
         @self.router.callback_query(F.data == "categories")
         async def cb_categories_display(callback: CallbackQuery, db: Database, lang: str):
