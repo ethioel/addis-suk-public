@@ -9,6 +9,7 @@ os.environ["GRADIO_SSR_MODE"] = "False"
 
 import asyncio
 import logging
+import threading
 import spaces
 import gradio as gr
 
@@ -38,6 +39,22 @@ def build_demo():
         )
     return demo
 
+def _run_bot():
+    """Run the aiogram bot in a dedicated thread with its own event loop."""
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
+    try:
+        from src.bot import main as bot_main
+        loop.run_until_complete(bot_main())
+    except Exception:
+        logger.exception("Bot crashed")
+    finally:
+        try:
+            loop.run_until_complete(loop.shutdown_asyncgens())
+        finally:
+            asyncio.set_event_loop(None)
+            loop.close()
+
 if __name__ == "__main__":
     PORT = int(os.getenv("GRADIO_SERVER_PORT") or os.getenv("PORT") or 7860)
     
@@ -51,7 +68,7 @@ if __name__ == "__main__":
     )
     logger.info(f"Gradio dashboard successfully launched on port {PORT}")
 
-    # 2. Run the aiogram Telegram bot
+    # 2. Run the aiogram Telegram bot in background thread
     BOT_TOKEN = os.getenv("BOT_TOKEN")
     if not BOT_TOKEN:
         logger.error("BOT_TOKEN not set — UI running, bot idle.")
@@ -60,8 +77,7 @@ if __name__ == "__main__":
             time.sleep(3600)
     else:
         logger.info("Starting Addis Suk Bot via long polling...")
-        from src.bot import main as bot_main
-        try:
-            asyncio.run(bot_main())
-        except KeyboardInterrupt:
-            logger.info("Bot shutting down gracefully...")
+        bot_thread = threading.Thread(target=_run_bot, name="telegram-bot", daemon=True)
+        bot_thread.start()
+        # Keep main thread alive for Gradio
+        bot_thread.join()
