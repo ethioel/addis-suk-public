@@ -164,7 +164,28 @@ class Database:
     async def init(self):
         async with aiosqlite.connect(self.db_path) as db:
             await db.executescript(SCHEMA)
+            await self._seed_categories(db)
             await db.commit()
+
+    async def _seed_categories(self, db):
+        """Seed default categories if none exist."""
+        result = await db.execute("SELECT COUNT(*) FROM categories")
+        count = (await result.fetchone())[0]
+        if count == 0:
+            categories = [
+                ("Vegetables", "የአቲካል ወተት", "🥦", 0),
+                ("Fruits", "ፍራፍሬ", "🍎", 1),
+                ("Meat", "ሥጋ", "🥩", 2),
+                ("Dairy", "ወተት", "🥛", 3),
+                ("Bakery", "ዳቦ", "🍞", 4),
+                ("Grains", "እህል", "🌾", 5),
+                ("Coffee", "ቡና", "☕", 6),
+                ("Household", "የቤት ሰረዝ", "🧴", 7),
+            ]
+            await db.executemany(
+                "INSERT INTO categories (name_en, name_am, emoji, display_order) VALUES (?, ?, ?, ?)",
+                categories
+            )
 
     async def execute(self, query: str, params: tuple = ()):
         async with aiosqlite.connect(self.db_path) as db:
@@ -356,4 +377,22 @@ CREATE TABLE IF NOT EXISTS transactions (
 
 CREATE INDEX IF NOT EXISTS idx_transactions_user_id ON transactions(user_id);
 CREATE INDEX IF NOT EXISTS idx_transactions_status ON transactions(status);
+
+-- Payments table (alias for transactions, used by verify_payment handler)
+CREATE TABLE IF NOT EXISTS payments (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id INTEGER NOT NULL REFERENCES users(id),
+    type TEXT NOT NULL,
+    amount REAL NOT NULL,
+    currency TEXT DEFAULT 'ETB',
+    payment_method TEXT,
+    payment_reference TEXT,
+    receipt_photo TEXT,
+    status TEXT DEFAULT 'pending',
+    verified_at TIMESTAMP,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_payments_user_id ON payments(user_id);
+CREATE INDEX IF NOT EXISTS idx_payments_status ON payments(status);
 """
