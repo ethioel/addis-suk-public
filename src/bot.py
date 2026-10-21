@@ -35,7 +35,7 @@ from src.middleware import (
 from src.keyboards import (
     main_menu, language_selector, search_keyboard,
     seller_keyboard, admin_keyboard, subscription_keyboard,
-    create_keyboard, location_menu
+    create_keyboard, location_menu, settings_menu
 )
 
 logging.basicConfig(
@@ -880,6 +880,142 @@ class AddisSukBot:
                 )
             except Exception:
                 await callback.message.answer("Cancelled." if lang == 'en' else "ተሰርዟል።")
+
+        @self.router.callback_query(F.data == "settings")
+        async def cb_settings(callback: CallbackQuery, lang: str):
+            # Safely answer immediately to prevent Telegram query expiration timeouts
+            try:
+                await callback.answer()
+            except Exception:
+                pass
+            try:
+                await callback.message.edit_text(
+                    "⚙️ *Settings*\nChoose an option:" if lang == 'en' else "⚙️ *ማስተካከያዎች*\nይምረጡ:",
+                    reply_markup=settings_menu(lang), parse_mode="Markdown"
+                )
+            except Exception:
+                await callback.message.answer(
+                    "⚙️ Settings", reply_markup=settings_menu(lang)
+                )
+
+        @self.router.callback_query(F.data == "search")
+        async def cb_search(callback: CallbackQuery, state: FSMContext, db: Database, user: dict, lang: str):
+            # Safely answer immediately to prevent Telegram query expiration timeouts
+            try:
+                await callback.answer()
+            except Exception:
+                pass
+            if not user:
+                user = await self.services.user.get_or_create_user(
+                    telegram_id=callback.from_user.id,
+                    username=callback.from_user.username,
+                    first_name=callback.from_user.first_name,
+                    last_name=callback.from_user.last_name
+                )
+            user_info = await self.services.user.get_user_subscription_info(callback.from_user.id)
+            search_count = await db.fetchone(
+                "SELECT COUNT(*) as cnt FROM search_logs WHERE user_id = ? AND date(created_at) = date('now')",
+                (user['id'],)
+            )
+            count = search_count['cnt'] if search_count else 0
+            if not user_info['is_premium'] and count >= config.FREE_SEARCH_LIMIT:
+                try:
+                    await callback.message.edit_text(
+                        "⚠️ You've reached your daily free limit (5 searches).\n"
+                        "Upgrade to Premium for unlimited searches!\n/subscribe" if lang == 'en' else
+                        "⚠️ የዕለት ነፃ ፍለጋ ገደብዎን (5 ፍለጋዎች) ጨርሰዋል።፣\nላልተገደበ ፍለጋ ወደ ፕሪሚየም ያሻሽሉ!",
+                        reply_markup=subscription_keyboard()
+                    )
+                except Exception:
+                    await callback.message.answer("Upgrade to Premium for unlimited searches!")
+                return
+            try:
+                await callback.message.edit_text(
+                    "🔍 Enter item name (e.g., tomato)" if lang == 'en' else "🔍 የሚፈልጉትን ምርት ስም ያስገቡ (ለምሳሌ፦ ቲማቲም)",
+                    reply_markup=None
+                )
+            except Exception:
+                await callback.message.answer("Enter item name (e.g., tomato)")
+            await state.set_state(Form.SEARCH_QUERY)
+
+        @self.router.callback_query(F.data == "categories")
+        async def cb_categories_display(callback: CallbackQuery, db: Database, lang: str):
+            # Safely answer immediately to prevent Telegram query expiration timeouts
+            try:
+                await callback.answer()
+            except Exception:
+                pass
+            cats = await db.fetchall(
+                "SELECT * FROM categories WHERE is_active = 1 ORDER BY display_order"
+            )
+            keyboard = InlineKeyboardBuilder()
+            for cat in cats:
+                emoji = cat['emoji'] or ''
+                name = cat['name_am'] if lang == 'am' else cat['name_en']
+                keyboard.button(text=f"{emoji} {name}", callback_data=f"cat_{cat['id']}")
+            keyboard.button(text="❌ Cancel", callback_data="cancel")
+            try:
+                await callback.message.edit_text(
+                    "📋 Categories" if lang == 'en' else "📋 የምርት ምድቦች",
+                    reply_markup=keyboard.as_markup()
+                )
+            except Exception:
+                await callback.message.answer(
+                    "Categories", reply_markup=keyboard.as_markup()
+                )
+
+        @self.router.callback_query(F.data == "nearby")
+        async def cb_nearby_start(callback: CallbackQuery, state: FSMContext, db: Database, user: dict, lang: str):
+            # Safely answer immediately to prevent Telegram query expiration timeouts
+            try:
+                await callback.answer()
+            except Exception:
+                pass
+            if not user:
+                user = await self.services.user.get_or_create_user(
+                    telegram_id=callback.from_user.id,
+                    username=callback.from_user.username,
+                    first_name=callback.from_user.first_name,
+                    last_name=callback.from_user.last_name
+                )
+            if not user.get('latitude') or not user.get('longitude'):
+                try:
+                    await callback.message.edit_text(
+                        "📍 Please share your location to find nearby sellers."
+                        if lang == 'en' else "📍 በአቅራቢያዎ ያሉ ሱቆችን ለመግኘት እባክዎ መገኛ ቦታዎን ይላኩ።",
+                        reply_markup=location_menu(lang)
+                    )
+                except Exception:
+                    await callback.message.answer(
+                        "Share your location:", reply_markup=location_menu(lang)
+                    )
+                return
+            state_data = await state.get_data()
+            query = state_data.get('nearby_query', '')
+            keyboard = InlineKeyboardBuilder()
+            keyboard.button(text="🔍 New Search", callback_data="search_again")
+            keyboard.button(text="📋 Categories", callback_data="categories")
+            keyboard.button(text="❌ Done", callback_data="cancel")
+            items, total = await self.services.item.search_items(
+                query=query, user_lat=user['latitude'], user_lon=user['longitude'], limit=20
+            )
+            await self._display_results(callback.message, items, total, lang, query or "nearby")
+
+        @self.router.callback_query(F.data == "search_again")
+        async def cb_search_again(callback: CallbackQuery, state: FSMContext, lang: str):
+            # Safely answer immediately to prevent Telegram query expiration timeouts
+            try:
+                await callback.answer()
+            except Exception:
+                pass
+            try:
+                await callback.message.edit_text(
+                    "🔍 Enter item name (e.g., tomato)" if lang == 'en' else "🔍 የሚፈልጉትን ምርት ስም ያስገቡ (ለምሳሌ፦ ቲማቲም)",
+                    reply_markup=None
+                )
+            except Exception:
+                await callback.message.answer("Enter item name (e.g., tomato)")
+            await state.set_state(Form.SEARCH_QUERY)
 
     def _register_errors(self):
         async def error_handler(event: ErrorEvent):
