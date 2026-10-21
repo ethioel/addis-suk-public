@@ -206,6 +206,98 @@ class SellerService:
         )
         return result.rowcount > 0
 
+    async def get_shop_details(self, seller_id: int) -> Optional[Dict[str, Any]]:
+        """Get a shop profile with aggregate stats."""
+        shop = await self.db.fetchone(
+            """
+            SELECT s.*, u.telegram_id, u.username, u.first_name
+            FROM sellers s
+            JOIN users u ON s.user_id = u.id
+            WHERE s.id = ?
+            """,
+            (seller_id,)
+        )
+        if not shop:
+            return None
+        return dict(shop)
+
+    async def get_shop_items(
+        self,
+        seller_id: int,
+        user_lat: Optional[float] = None,
+        user_lon: Optional[float] = None
+    ) -> List[Dict[str, Any]]:
+        """Get all sellable items for a shop with distance info."""
+        items = await self.db.fetchall(
+            """
+            SELECT i.*, c.name_en as category_name_en, c.name_am as category_name_am
+            FROM items i
+            JOIN categories c ON i.category_id = c.id
+            WHERE i.seller_id = ? AND i.status = 'approved'
+            ORDER BY c.display_order, i.name_en
+            """,
+            (seller_id,)
+        )
+        results = []
+        for item in items:
+            item_dict = dict(item)
+            if user_lat is not None and user_lon is not None and item_dict.get('latitude') is not None:
+                item_dict['distance_km'] = round(self._haversine_distance(
+                    user_lat, user_lon,
+                    float(item_dict['latitude']), float(item_dict['longitude'])
+                ), 2)
+            results.append(item_dict)
+        return results
+
+    async def search_shops(
+        self,
+        query: str = "",
+        user_lat: Optional[float] = None,
+        user_lon: Optional[float] = None,
+        limit: int = 10
+    ) -> List[Dict[str, Any]]:
+        """Search shops by name/city/address, ranked by closeness."""
+        conditions = ["s.status = 'approved'"]
+        params: List[Any] = []
+
+        if query:
+            conditions.append("(s.shop_name LIKE ? OR s.city LIKE ? OR s.address LIKE ? OR s.sub_city LIKE ?)")
+            term = f"%{query}%"
+            params.extend([term, term, term, term])
+
+        where_clause = " AND ".join(conditions)
+
+        shops = await self.db.fetchall(
+            f"""
+            SELECT s.*,
+                   COUNT(i.id) as item_count,
+                   MIN(i.price) as min_price,
+                   MAX(i.price) as max_price
+            FROM sellers s
+            LEFT JOIN items i ON i.seller_id = s.id AND i.status = 'approved'
+            WHERE {where_clause}
+            GROUP BY s.id
+            ORDER BY item_count DESC
+            LIMIT ?
+            """,
+            (*params, limit)
+        )
+
+        results = []
+        for shop in shops:
+            shop_dict = dict(shop)
+            if user_lat is not None and user_lon is not None and shop_dict.get('latitude') is not None:
+                distance = self._haversine_distance(
+                    user_lat, user_lon,
+                    float(shop_dict['latitude']), float(shop_dict['longitude'])
+                )
+                shop_dict['distance_km'] = round(distance, 2)
+            results.append(shop_dict)
+
+        if user_lat is not None and user_lon is not None:
+            results.sort(key=lambda x: (x.get('distance_km', float('inf'))))
+        return results
+
 
 class ItemService:
     """Handles item-related operations."""
@@ -324,7 +416,7 @@ class ItemService:
         limit: int = 20,
         offset: int = 0
     ) -> Tuple[List[Dict[str, Any]], int]:
-        """Search for items with filters."""
+        """Search for items with smart ranking by distance, price, and relevance."""
         # Build WHERE clause
         conditions = ["i.status = 'approved'", "s.status = 'approved'"]
         params: List[Any] = []
@@ -348,7 +440,7 @@ class ItemService:
             WHERE {where_clause}
         """
         
-        # Main query
+        # Main query - fetch all matching items with seller/cat info
         query_sql = f"""
             SELECT i.*, 
                    s.shop_name, s.address, s.city, s.sub_city,
@@ -358,39 +450,122 @@ class ItemService:
             JOIN sellers s ON i.seller_id = s.id
             JOIN categories c ON i.category_id = c.id
             WHERE {where_clause}
-            ORDER BY 
-                CASE WHEN s.featured_until IS NOT NULL AND s.featured_until > datetime('now') 
-                     THEN 0 ELSE 1 END,
-                i.created_at DESC
+            ORDER BY i.created_at DESC
             LIMIT ? OFFSET ?
         """
         
         params.extend([limit, offset])
         
-        # Execute count
-        count_result = await self.db.fetchone(count_query, params[:-2])  # Exclude limit/offset
+        # Execute count (use only search params, not limit/offset)
+        search_params = params[:2] if len(params) >= 2 else ()
+        count_result = await self.db.fetchone(count_query, search_params)
         total_count = count_result['COUNT(*)'] if count_result else 0
         
         # Execute main query
         items = await self.db.fetchall(query_sql, params)
         
-        # Calculate distance if user location provided, then sort by distance
+        # Calculate smart score for each item
         result_items = []
         for item in items:
             item_dict = dict(item)
-            if user_lat is not None and user_lon is not None and item_dict['latitude'] is not None:
+            
+            # Initialize score components
+            distance_km = None
+            price_score = 0.0
+            relevance_score = 0.0
+            
+            # 1. Calculate distance if user location provided
+            if user_lat is not None and user_lon is not None and item_dict.get('latitude') is not None:
                 distance = self._haversine_distance(
                     user_lat, user_lon,
-                    item_dict['latitude'], item_dict['longitude']
+                    float(item_dict['latitude']), float(item_dict['longitude'])
                 )
-                item_dict['distance_km'] = round(distance, 2)
+                distance_km = round(distance, 2)
+                # Score: closer is better (max 30 points, 0 at 50km+)
+                if distance_km <= 5:
+                    distance_score = 30
+                elif distance_km <= 10:
+                    distance_score = 25
+                elif distance_km <= 20:
+                    distance_score = 20
+                elif distance_km <= 30:
+                    distance_score = 15
+                elif distance_km <= 50:
+                    distance_score = 10
+                else:
+                    distance_score = 0
+            else:
+                distance_km = None
+                distance_score = 0
+            
+            # 2. Price relevance scoring (0-30 points)
+            # Lower price within category gets higher score; normalize against avg
+            try:
+                item_price = float(item_dict['price'])
+                if item_price > 0:
+                    # Base score: inverse price, capped; cheaper gets more points
+                    price_score = max(0, 30 - min(25, int(item_price / 10)))
+                    # Bonus for premium items being featured
+                    if item_dict.get('featured_until') and item_dict.get('featured_until') > datetime.utcnow().isoformat() if isinstance(item_dict.get('featured_until'), str) else True:
+                        price_score = min(price_score + 5, 30)
+            except (ValueError, TypeError):
+                price_score = 10  # Default neutral score
+            
+            # 3. Relevance to query (0-25 points)
+            if query:
+                name_en = str(item_dict.get('name_en', '')).lower()
+                name_am = str(item_dict.get('name_am', '')).lower()
+                q = query.lower()
+                # Exact match gets highest score
+                if q in name_en or q in name_am:
+                    relevance_score = 25
+                # Partial match (first word)
+                elif name_en.startswith(q) or name_am.startswith(q):
+                    relevance_score = 15
+                # Contains query anywhere
+                elif q in name_en or q in name_am:
+                    relevance_score = 10
+                # Category match bonus
+                if item_dict.get('category_name_en') and q in str(item_dict['category_name_en']).lower():
+                    relevance_score = min(relevance_score + 5, 25)
+            else:
+                # No query = freshness/relevance boost for recent/featured items
+                try:
+                    featured = item_dict.get('featured_until')
+                    if featured:
+                        fdate = datetime.fromisoformat(featured) if isinstance(featured, str) else featured
+                        if fdate > datetime.utcnow():
+                            relevance_score = 10  # Featured items get boost
+                        else:
+                            relevance_score = 0
+                    else:
+                        # Recent items get small boost
+                        rel_created = item_dict.get('created_at')
+                        if rel_created:
+                            created = datetime.fromisoformat(rel_created) if isinstance(rel_created, str) else rel_created
+                            if (datetime.utcnow() - created).days < 30:
+                                relevance_score = 5
+                except Exception:
+                    relevance_score = 0
+            
+            # Total score = distance + price + relevance (max 85 points)
+            total_score = distance_score + price_score + relevance_score
+            
+            item_dict['search_score'] = total_score
+            item_dict['distance_km'] = distance_km
             result_items.append(item_dict)
         
-        # Sort by distance when location is provided
-        if user_lat is not None and user_lon is not None:
-            result_items.sort(key=lambda x: (x.get('featured_until') is None, x.get('distance_km', float('inf'))))
+        # Sort by total score (highest first), tie-break by featured then date
+        result_items.sort(key=lambda x: (
+            x.get('search_score', 0),
+            (x.get('featured_until') is None,  # featured first
+             x.get('distance_km', float('inf')))  # closer first
+        ), reverse=True)
         
-        return result_items, total_count
+        # Return top 'limit' items (already sorted)
+        final_items = result_items[:limit]
+        
+        return final_items, total_count
     
     def _haversine_distance(self, lat1: float, lon1: float, lat2: float, lon2: float) -> float:
         """Calculate distance between two points in kilometers."""

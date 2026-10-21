@@ -25,7 +25,7 @@ run:
   # HF Spaces runs the app.py file automatically
   # It will start a web server on the assigned PORT
   # and the Telegram bot will poll in the background
-  command: "python -m src.app"
+  command: "python app.py"
 
 # Environment variables (set via HF Secrets)
 env:
