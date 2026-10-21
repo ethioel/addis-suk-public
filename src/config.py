@@ -103,9 +103,12 @@ def load_config() -> Config:
     return config
 
 
-config = None
+try:
+    config = load_config()
+except ValueError:
+    config = None
 
 # Export commonly used values (set after load_config() is called)
-BOT_TOKEN = ""
-ADMIN_IDS = []
+BOT_TOKEN = config.BOT_TOKEN if config else ""
+ADMIN_IDS = config.ADMIN_IDS if config else []
 DB_PATH = str(DATA_DIR / "addis_suk.db")
