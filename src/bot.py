@@ -1320,15 +1320,17 @@ class AddisSukBot:
                 )
             if not user.get('latitude') or not user.get('longitude'):
                 try:
-                    await callback.message.edit_text(
-                        "📍 Please share your location to find nearby sellers."
-                        if lang == 'en' else "📍 በአቅራቢያዎ ያሉ ሱቆችን ለመግኘት እባክዎ መገኛ ቦታዎን ይላኩ።",
-                        reply_markup=location_menu(lang)
+                    await callback.answer(
+                        "Share your location" if lang == 'en' else "መገኛ ያስገቡ",
+                        show_alert=True
                     )
                 except Exception:
-                    await callback.message.answer(
-                        "Share your location:", reply_markup=location_menu(lang)
-                    )
+                    pass
+                await callback.message.answer(
+                    "📍 Please share your location to find nearby sellers."
+                    if lang == 'en' else "📍 በአቅራቢያዎ ያሉ ሱቆችን ለመግኘት እባክዎ መገኛ ቦታዎን ይላኩ።",
+                    reply_markup=location_menu(lang)
+                )
                 return
             state_data = await state.get_data()
             query = state_data.get('nearby_query', '')

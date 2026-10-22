@@ -2,6 +2,7 @@
 # Demonstration data seeder for Addis Suk Bot
 
 from typing import Dict, List, Any, Tuple
+from datetime import datetime
 import logging
 
 logger = logging.getLogger(__name__)

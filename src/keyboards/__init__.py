@@ -1,4 +1,4 @@
-from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
+from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton, ReplyKeyboardMarkup, KeyboardButton
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 from typing import List, Tuple, Optional
 
@@ -133,9 +133,11 @@ def seller_listing_keyboard(item_id: int, lang: str = 'en') -> InlineKeyboardMar
     return builder.as_markup()
 
 
-def location_menu(lang: str = 'en') -> InlineKeyboardMarkup:
-    builder = InlineKeyboardBuilder()
+def location_menu(lang: str = 'en') -> ReplyKeyboardMarkup:
     share_text = "📍 Share Location" if lang == 'en' else "📍 መገኛዎን ይላኩ"
-    builder.button(text=share_text, request_location=True)
-    builder.button(text="❌ Cancel", callback_data="cancel")
-    return builder.as_markup()
+    keyboard = ReplyKeyboardMarkup(
+        resize_keyboard=True,
+        one_time_keyboard=True
+    )
+    keyboard.keyboard = [[KeyboardButton(text=share_text, request_location=True)], ["❌ Cancel"]]
+    return keyboard
