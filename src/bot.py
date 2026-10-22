@@ -917,15 +917,42 @@ class AddisSukBot:
                 except Exception:
                     await callback.message.answer(msg)
                 return
-            parts = [f"📋 *{cat_name} - {len(items)} items*" if lang == 'en' else f"📋 *{cat_name} - {len(items)} ምርቶች*"]
-            for item in items:
+            shown = items[:10]
+            rows = []
+            best = None
+            for idx, item in enumerate(shown, 1):
                 name = item['name_am'] if lang == 'am' else item['name_en']
-                parts.append(f"• {name}: {item['price']} {item['unit']}")
+                if best is None or item['price'] < best['price']:
+                    best = item
+                rows.append([
+                    idx,
+                    self._clean(name),
+                    f"{item['price']:g}/{item['unit']}",
+                    self._clean(item['shop_name']),
+                    self._clean(item['city'] or "-"),
+                ])
+
+            if lang == 'en':
+                header = f"📋 *{self._clean(cat_name)} — {len(items)} items*"
+                footer = (
+                    f"\n💰 *Best price:* {best['price']:g} {best['unit']} "
+                    f"at _{self._clean(best['shop_name'])}_"
+                )
+            else:
+                header = f"📋 *{self._clean(cat_name)} — {len(items)} ምርቶች*"
+                footer = (
+                    f"\n💰 *ምርጥ ዋጋ:* {best['price']:g} {best['unit']} "
+                    f"በ _{self._clean(best['shop_name'])}_"
+                )
+
+            table = self._format_table(["#", "Item", "Price", "Shop", "City"], rows)
+            parts = [header, f"```\n{table}\n```", footer]
 
             keyboard = InlineKeyboardBuilder()
-            for item in items[:5]:
-                keyboard.button(text=f"⭐", callback_data=f"fav_{item['id']}")
+            for idx, item in enumerate(shown[:5], 1):
+                keyboard.button(text=f"⭐ {idx}", callback_data=f"fav_{item['id']}")
             keyboard.button(text="❌ Cancel", callback_data="cancel")
+            keyboard.adjust(3, 2, 1)
             try:
                 await callback.message.edit_text(
                     "\n".join(parts), reply_markup=keyboard.as_markup(), parse_mode="Markdown"
@@ -1377,6 +1404,30 @@ class AddisSukBot:
         )
         await self._display_results(message, items, total, lang, query)
 
+    @staticmethod
+    def _clean(text: str) -> str:
+        """Strip Markdown-breaking characters from user-generated text."""
+        return str(text).replace("*", "").replace("_", "").replace("`", "").strip()
+
+    @staticmethod
+    def _format_table(headers: list, rows: list, max_width: int = 22) -> str:
+        """Render an aligned monospace table for a Telegram code block."""
+        str_rows = [[str(c) for c in row] for row in rows]
+        widths = [len(h) for h in headers]
+        for row in str_rows:
+            for i, cell in enumerate(row):
+                if i < len(widths):
+                    widths[i] = min(max(widths[i], len(cell)), max_width)
+
+        def fmt(row: list) -> str:
+            return " | ".join(
+                (cell[: widths[i]] if len(cell) > widths[i] else cell.ljust(widths[i]))
+                for i, cell in enumerate(row)
+            )
+
+        sep = "-+-".join("-" * w for w in widths)
+        return "\n".join([fmt(headers), sep] + [fmt(r) for r in str_rows])
+
     async def _display_results(self, message: Message, items: list, total: int, lang: str, query: str):
         if not items:
             text = (
@@ -1386,19 +1437,43 @@ class AddisSukBot:
             await message.answer(text, reply_markup=main_menu(lang))
             return
 
-        parts = [f"🔍 *Results for '{query}'* ({total} found)\n"] if lang == 'en' \
-            else [f"🔍 *የ '{query}' ፍለጋ ውጤቶች* ({total} ተገኝተዋል)\n"]
-        for item in items[:10]:
+        shown = items[:10]
+        rows = []
+        best = None
+        for idx, item in enumerate(shown, 1):
             name = item['name_am'] if lang == 'am' else item['name_en']
-            dist = f"📍{item.get('distance_km', 'N/A')}km" if item.get('distance_km') else ""
-            parts.append(
-                f"• {name}: {item['price']} {item['unit']} ({item['shop_name']}) {dist}"
+            dist = item.get('distance_km')
+            if best is None or item['price'] < best['price']:
+                best = item
+            rows.append([
+                idx,
+                self._clean(name),
+                f"{item['price']:g}/{item['unit']}",
+                self._clean(item['shop_name']),
+                f"{dist:.1f}km" if dist else "-",
+            ])
+
+        if lang == 'en':
+            header = f"🔍 *Results for \"{self._clean(query)}\"* ({total} found)"
+            footer = (
+                f"\n💰 *Best price:* {best['price']:g} {best['unit']} "
+                f"at _{self._clean(best['shop_name'])}_"
             )
+        else:
+            header = f"🔍 *የ \"{self._clean(query)}\" ፍለጋ ውጤቶች* ({total} ተገኝተዋል)"
+            footer = (
+                f"\n💰 *ምርጥ ዋጋ:* {best['price']:g} {best['unit']} "
+                f"በ _{self._clean(best['shop_name'])}_"
+            )
+
+        table = self._format_table(["#", "Item", "Price", "Shop", "Dist"], rows)
+        parts = [header, f"```\n{table}\n```", footer]
 
         keyboard = InlineKeyboardBuilder()
         keyboard.button(text="🔍 New Search", callback_data="search_again")
         keyboard.button(text="📋 Categories", callback_data="categories")
         keyboard.button(text="❌ Done", callback_data="cancel")
+        keyboard.adjust(2, 1)
 
         await message.answer("\n".join(parts), reply_markup=keyboard.as_markup(), parse_mode="Markdown")
 

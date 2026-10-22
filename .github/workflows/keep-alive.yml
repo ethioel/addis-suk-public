@@ -1,0 +1,29 @@
+name: Keep HF Space alive
+
+on:
+  schedule:
+    - cron: "*/10 * * * *"
+  workflow_dispatch:
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Ping HF Space
+        env:
+          HF_SPACE_URL: ${{ vars.HF_SPACE_URL }}
+        run: |
+          if [ -z "$HF_SPACE_URL" ]; then
+            echo "HF_SPACE_URL repo variable is not set. Add it under Settings > Secrets and variables > Actions > Variables."
+            exit 0
+          fi
+          for i in 1 2 3; do
+            if curl -fsS -o /dev/null --max-time 30 "$HF_SPACE_URL"; then
+              echo "Pinged $HF_SPACE_URL"
+              exit 0
+            fi
+            echo "Attempt $i failed; retrying in 15s..."
+            sleep 15
+          done
+          echo "All ping attempts failed."
+          exit 1
