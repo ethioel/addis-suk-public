@@ -135,9 +135,13 @@ def seller_listing_keyboard(item_id: int, lang: str = 'en') -> InlineKeyboardMar
 
 def location_menu(lang: str = 'en') -> ReplyKeyboardMarkup:
     share_text = "📍 Share Location" if lang == 'en' else "📍 መገኛዎን ይላኩ"
+    cancel_text = "❌ Cancel" if lang == 'en' else "❌ ይቅርታ"
     keyboard = ReplyKeyboardMarkup(
+        keyboard=[
+            [KeyboardButton(text=share_text, request_location=True)],
+            [KeyboardButton(text=cancel_text)],
+        ],
         resize_keyboard=True,
-        one_time_keyboard=True
+        one_time_keyboard=True,
     )
-    keyboard.keyboard = [[KeyboardButton(text=share_text, request_location=True)], ["❌ Cancel"]]
     return keyboard

@@ -333,7 +333,7 @@ class AddisSukBot:
                 (user['id'],)
             )
             count = search_count['cnt'] if search_count else 0
-            if not user_info['is_premium'] and count >= config.FREE_SEARCH_LIMIT:
+            if not user_info.get('is_premium', False) and count >= config.FREE_SEARCH_LIMIT:
                 await message.answer(
                     "⚠️ You've reached your daily free limit (5 searches).\n"
                     "Upgrade to Premium for unlimited searches!\n/subscribe"
@@ -626,7 +626,7 @@ class AddisSukBot:
         @self.router.message(Command("favorites"))
         async def cmd_favorites(message: Message, db: Database, user: dict, lang: str):
             user_info = await self.services.user.get_user_subscription_info(message.from_user.id)
-            if not user_info['is_premium']:
+            if not user_info.get('is_premium', False):
                 await message.answer("⭐ Premium feature. Use /subscribe to upgrade." if lang == 'en' else "⭐ የፕሪሚየም አገልግሎት። ለማሻሻል /subscribe ይጠቀሙ።")
                 return
             favorites = await self.services.favorite.get_user_favorites(user['id'])
@@ -642,7 +642,7 @@ class AddisSukBot:
         @self.router.message(Command("alerts"))
         async def cmd_alerts(message: Message, db: Database, user: dict, lang: str):
             user_info = await self.services.user.get_user_subscription_info(message.from_user.id)
-            if not user_info['is_premium']:
+            if not user_info.get('is_premium', False):
                 await message.answer("⭐ Premium feature. Use /subscribe to upgrade." if lang == 'en' else "⭐ የፕሪሚየም አገልግሎት። ለማሻሻል /subscribe ይጠቀሙ።")
                 return
             alerts = await self.services.alert.get_user_alerts(user['id'])
@@ -658,7 +658,7 @@ class AddisSukBot:
         async def cmd_alert_add(message: Message, state: FSMContext, db: Database, user: dict, lang: str):
             args = get_args(message).split()
             user_info = await self.services.user.get_user_subscription_info(message.from_user.id)
-            if not user_info['is_premium']:
+            if not user_info.get('is_premium', False):
                 await message.answer("⭐ Premium feature. Use /subscribe to upgrade." if lang == 'en' else "⭐ የፕሪሚየም አገልግሎት። ለማሻሻል /subscribe ይጠቀሙ።")
                 return
             if len(args) >= 2:
@@ -694,7 +694,7 @@ class AddisSukBot:
         @self.router.message(Command("history"))
         async def cmd_history(message: Message, db: Database, user: dict, lang: str):
             user_info = await self.services.user.get_user_subscription_info(message.from_user.id)
-            if not user_info['is_premium']:
+            if not user_info.get('is_premium', False):
                 await message.answer("⭐ Premium feature. Use /subscribe to upgrade." if lang == 'en' else "⭐ የፕሪሚየም አገልግሎትን ለማሻሻል /subscribe ይጠቀሙ።")
                 return
             query = get_args(message)
@@ -877,8 +877,8 @@ class AddisSukBot:
             except Exception:
                 pass  # Ignore if the query has already timed out or is invalid
             info = await self.services.user.get_user_subscription_info(callback.from_user.id)
-            status_text = "⭐ Your subscription is active" if info['is_premium'] else "⭐ No active subscription"
-            am_status_text = "⭐ አባል ነዎት" if info['is_premium'] else "⭐ አ巴ል አይደልም"
+            status_text = "⭐ Your subscription is active" if info.get('is_premium', False) else "⭐ No active subscription"
+            am_status_text = "⭐ አባል ነዎት" if info.get('is_premium', False) else "⭐ አ巴ል አይደልም"
             try:
                 await callback.message.edit_text(
                     status_text if lang == 'en' else am_status_text,
@@ -944,7 +944,7 @@ class AddisSukBot:
                 pass  # Ignore if the query has already timed out or is invalid
             item_id = int(callback.data.split("_")[1])
             info = await self.services.user.get_user_subscription_info(callback.from_user.id)
-            if not info['is_premium']:
+            if not info.get('is_premium', False):
                 return
             success = await self.services.favorite.add_favorite(user['id'], item_id)
             msg = "⭐ Added to favorites!" if success else "Already favorited!"
@@ -1060,7 +1060,7 @@ class AddisSukBot:
                     (user['id'],)
                 )
                 count = search_count['cnt'] if search_count else 0
-                if not user_info['is_premium'] and count >= config.FREE_SEARCH_LIMIT:
+                if not user_info.get('is_premium', False) and count >= config.FREE_SEARCH_LIMIT:
                     try:
                         await callback.message.edit_text(
                             "⚠️ You've reached your daily free limit (5 searches).\n"
