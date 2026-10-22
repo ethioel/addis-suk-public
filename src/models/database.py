@@ -214,7 +214,7 @@ CREATE TABLE IF NOT EXISTS users (
     username TEXT,
     first_name TEXT NOT NULL,
     last_name TEXT,
-    language TEXT DEFAULT 'en',
+    language TEXT DEFAULT '',
     role TEXT DEFAULT 'buyer',
     subscription_tier TEXT DEFAULT 'free',
     subscription_expires TIMESTAMP,

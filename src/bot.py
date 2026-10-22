@@ -828,7 +828,7 @@ class AddisSukBot:
             await message.answer("\n".join(parts), parse_mode="Markdown")
 
     def _register_callbacks(self):
-        @self.router.callback_query(F.data == "language" or F.data.startswith("lang_"))
+        @self.router.callback_query(F.data == "language" | F.data.startswith("lang_"))
         async def cb_language(callback: CallbackQuery, db: Database, lang: str):
             # Safely answer immediately to prevent Telegram query expiration timeouts
             try:
