@@ -143,7 +143,7 @@ SEED_SHOPS: List[Dict[str, Any]] = [
     },
     {
         "shop_name": "Adama Central Market",
-        "address": "Adama Main Market"),
+        "address": "Adama Main Market",
         "phone": "0919900111",
         "city": "Adama",
         "sub_city": "",
