@@ -35,7 +35,10 @@ from src.middleware import (
 from src.keyboards import (
     main_menu, language_selector, search_keyboard,
     seller_keyboard, admin_keyboard, subscription_keyboard,
-    create_keyboard, location_menu, settings_menu
+    create_keyboard, location_menu, settings_menu,
+    cities_keyboard, subcities_keyboard,
+    LOCATION_MANUAL_TEXT, LOCATION_MANUAL_TEXT_AM,
+    LOCATION_CANCEL_TEXT, LOCATION_CANCEL_TEXT_AM
 )
 
 logging.basicConfig(
@@ -95,8 +98,13 @@ class AddisSukBot:
             ("Household", "የቤት ሰረዝ", "🧴"),
         ]
         for i, (name_en, name_am, emoji) in enumerate(categories):
+            existing = await self.db.fetchone(
+                "SELECT id FROM categories WHERE name_en = ?", (name_en,)
+            )
+            if existing:
+                continue
             await self.db.execute(
-                "INSERT OR IGNORE INTO categories (name_en, name_am, emoji, display_order) VALUES (?, ?, ?, ?)",
+                "INSERT INTO categories (name_en, name_am, emoji, display_order) VALUES (?, ?, ?, ?)",
                 (name_en, name_am, emoji, i)
             )
         logger.info("Categories seeded successfully.")
@@ -440,11 +448,11 @@ class AddisSukBot:
 
         @self.router.message(Command("setlocation"))
         async def cmd_setlocation(message: Message, lang: str):
-            keyboard = InlineKeyboardBuilder()
-            keyboard.button(text="📍 Share Location", request_location=True)
-            keyboard.button(text="❌ Cancel", callback_data="cancel")
-            await message.answer("📍 Send your location to save it:"
-                if lang == 'en' else "📍 ለማስቀመጥ መገኛዎን (Location) ይላኩ፦", reply_markup=keyboard.as_markup())
+            await message.answer(
+                "📍 Send your location (or choose a city manually):"
+                if lang == 'en' else "📍 መገኛዎን ይላኩ (ወይም ከተማ በእጅ ይምረጡ)፦",
+                reply_markup=location_menu(lang)
+            )
 
         @self.router.message(lambda m: m.location is not None)
         async def handle_location(message: Message, db: Database, user: dict, lang: str):
@@ -462,6 +470,24 @@ class AddisSukBot:
                 query="", user_lat=lat, user_lon=lon, limit=20
             )
             await self._display_results(message, items, total, lang, "nearby")
+
+        @self.router.message(lambda m: m.text in (LOCATION_MANUAL_TEXT, LOCATION_MANUAL_TEXT_AM))
+        async def handle_manual_location(message: Message, state: FSMContext, lang: str):
+            await state.clear()
+            city_names = list(config.CITIES.keys())
+            city_names_am = [config.CITIES[c] for c in city_names]
+            await message.answer(
+                "🏙️ Select your city:" if lang == 'en' else "🏙️ ከተማዎን ይምረጡ፦",
+                reply_markup=cities_keyboard(city_names, city_names_am, lang)
+            )
+
+        @self.router.message(lambda m: m.text in (LOCATION_CANCEL_TEXT, LOCATION_CANCEL_TEXT_AM))
+        async def handle_location_cancel_text(message: Message, state: FSMContext, lang: str):
+            await state.clear()
+            await message.answer(
+                "Cancelled. Main menu:" if lang == 'en' else "ተሰርዟል። ዋና ምናሌ፦",
+                reply_markup=main_menu(lang)
+            )
 
         @self.router.message(Command("add"))
         async def cmd_add(message: Message, db: Database, user: dict, lang: str):
@@ -1313,7 +1339,7 @@ class AddisSukBot:
             except Exception:
                 pass
             cats = await db.fetchall(
-                "SELECT * FROM categories WHERE is_active = 1 ORDER BY display_order"
+                "SELECT * FROM categories WHERE is_active = 1 ORDER BY   display_order"
             )
             keyboard = InlineKeyboardBuilder()
             for cat in cats:
@@ -1369,6 +1395,78 @@ class AddisSukBot:
                 query=query, user_lat=user['latitude'], user_lon=user['longitude'], limit=20
             )
             await self._display_results(callback.message, items, total, lang, query or "nearby")
+
+        @self.router.callback_query(F.data == "loc_back_cities")
+        async def cb_loc_back_cities(callback: CallbackQuery, lang: str):
+            try:
+                await callback.answer()
+            except Exception:
+                pass
+            city_names = list(config.CITIES.keys())
+            city_names_am = [config.CITIES[c] for c in city_names]
+            try:
+                await callback.message.edit_text(
+                    "🏙️ Select your city:" if lang == 'en' else "🏙️ ከተማዎን ይምረጡ፦",
+                    reply_markup=cities_keyboard(city_names, city_names_am, lang)
+                )
+            except Exception:
+                pass
+
+        @self.router.callback_query(F.data.startswith("loc_city_"))
+        async def cb_loc_city(callback: CallbackQuery, state: FSMContext, db: Database, user: dict, lang: str):
+            try:
+                await callback.answer()
+            except Exception:
+                pass
+            idx = int(callback.data.split("_")[-1])
+            city_names = list(config.CITIES.keys())
+            if idx < 0 or idx >= len(city_names):
+                return
+            city = city_names[idx]
+            if city == "Addis Ababa":
+                try:
+                    await callback.message.edit_text(
+                        "📍 Select your area:" if lang == 'en' else "📍 ክፍለ ከተማዎን/አካባቢዎን ይምረጡ፦",
+                        reply_markup=subcities_keyboard(config.ADDIS_SUB_CITIES, lang)
+                    )
+                except Exception:
+                    await callback.message.answer(
+                        "📍 Select your area:" if lang == 'en' else "📍 ክፍለ ከተማዎን/አካባቢዎን ይምረጡ፦",
+                        reply_markup=subcities_keyboard(config.ADDIS_SUB_CITIES, lang)
+                    )
+                return
+            lat, lon = config.CITY_COORDS.get(city, (config.DEFAULT_LATITUDE, config.DEFAULT_LONGITUDE))
+            await self.services.user.update_user_location(
+                callback.from_user.id, latitude=lat, longitude=lon, city=city
+            )
+            await state.clear()
+            items, total = await self.services.item.search_items(
+                query="", user_lat=lat, user_lon=lon, limit=20
+            )
+            await self._display_results(callback.message, items, total, lang, f"nearby · {city}")
+
+        @self.router.callback_query(F.data.startswith("loc_sub_"))
+        async def cb_loc_sub(callback: CallbackQuery, state: FSMContext, db: Database, user: dict, lang: str):
+            try:
+                await callback.answer()
+            except Exception:
+                pass
+            idx = int(callback.data.split("_")[-1])
+            if idx < 0 or idx >= len(config.ADDIS_SUB_CITIES):
+                return
+            sub = config.ADDIS_SUB_CITIES[idx]
+            lat, lon = config.ADDIS_SUBCITY_COORDS.get(
+                sub, (config.DEFAULT_LATITUDE, config.DEFAULT_LONGITUDE)
+            )
+            await self.services.user.update_user_location(
+                callback.from_user.id, latitude=lat, longitude=lon,
+                city="Addis Ababa", sub_city=sub
+            )
+            await state.clear()
+            items, total = await self.services.item.search_items(
+                query="", user_lat=lat, user_lon=lon, limit=20
+            )
+            await self._display_results(callback.message, items, total, lang, f"nearby · {sub}")
 
         @self.router.callback_query(F.data == "search_again")
         async def cb_search_again(callback: CallbackQuery, state: FSMContext, lang: str):

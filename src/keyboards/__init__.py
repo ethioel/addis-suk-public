@@ -135,13 +135,45 @@ def seller_listing_keyboard(item_id: int, lang: str = 'en') -> InlineKeyboardMar
 
 def location_menu(lang: str = 'en') -> ReplyKeyboardMarkup:
     share_text = "📍 Share Location" if lang == 'en' else "📍 መገኛዎን ይላኩ"
+    manual_text = "🏙️ Choose City" if lang == 'en' else "🏙️ ከተማ ይምረጡ"
     cancel_text = "❌ Cancel" if lang == 'en' else "❌ ይቅርታ"
     keyboard = ReplyKeyboardMarkup(
         keyboard=[
             [KeyboardButton(text=share_text, request_location=True)],
+            [KeyboardButton(text=manual_text)],
             [KeyboardButton(text=cancel_text)],
         ],
         resize_keyboard=True,
         one_time_keyboard=True,
     )
     return keyboard
+
+
+LOCATION_MANUAL_TEXT = "🏙️ Choose City"
+LOCATION_MANUAL_TEXT_AM = "🏙️ ከተማ ይምረጡ"
+LOCATION_CANCEL_TEXT = "❌ Cancel"
+LOCATION_CANCEL_TEXT_AM = "❌ ይቅርታ"
+
+
+def cities_keyboard(city_names: List[str], city_names_am: List[str],
+                    lang: str = 'en') -> InlineKeyboardMarkup:
+    """One button per city, 2 per row. callback: loc_city_<index>."""
+    builder = InlineKeyboardBuilder()
+    names = city_names_am if lang == 'am' else city_names
+    for i, name in enumerate(names):
+        builder.button(text=f"🏙 {name}", callback_data=f"loc_city_{i}")
+    builder.button(text="❌ Cancel", callback_data="cancel")
+    builder.adjust(2, 2, 2, 2, 2, 1)
+    return builder.as_markup()
+
+
+def subcities_keyboard(subcity_names: List[str],
+                       lang: str = 'en') -> InlineKeyboardMarkup:
+    """One button per sub-city/neighborhood, 2 per row. callback: loc_sub_<index>."""
+    builder = InlineKeyboardBuilder()
+    for i, name in enumerate(subcity_names):
+        builder.button(text=f"📍 {name}", callback_data=f"loc_sub_{i}")
+    builder.button(text="⬅️ Back", callback_data="loc_back_cities")
+    builder.button(text="❌ Cancel", callback_data="cancel")
+    builder.adjust(2, 2, 2, 2, 2, 2, 2, 2, 2, 1, 1)
+    return builder.as_markup()

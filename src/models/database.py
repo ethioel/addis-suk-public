@@ -164,8 +164,34 @@ class Database:
     async def init(self):
         async with aiosqlite.connect(self.db_path) as db:
             await db.executescript(SCHEMA)
+            await self._dedupe_categories(db)
             await self._seed_categories(db)
             await db.commit()
+
+    @staticmethod
+    async def _dedupe_categories(db):
+        """Merge duplicate category rows, keeping the lowest id per name_en."""
+        dupes = await db.execute(
+            """
+            SELECT id, name_en FROM categories
+            WHERE id NOT IN (SELECT MIN(id) FROM categories GROUP BY name_en)
+            """
+        )
+        rows = await dupes.fetchall()
+        if not rows:
+            return
+        for row in rows:
+            dupe_id, name_en = row[0], row[1]
+            keep = await db.execute(
+                "SELECT MIN(id) FROM categories WHERE name_en = ?", (name_en,)
+            )
+            keep_id = (await keep.fetchone())[0]
+            for table in ("items", "price_alerts", "search_logs"):
+                await db.execute(
+                    f"UPDATE {table} SET category_id = ? WHERE category_id = ?",
+                    (keep_id, dupe_id)
+                )
+            await db.execute("DELETE FROM categories WHERE id = ?", (dupe_id,))
 
     async def _seed_categories(self, db):
         """Seed default categories if none exist."""
@@ -259,7 +285,7 @@ CREATE INDEX IF NOT EXISTS idx_sellers_location ON sellers(latitude, longitude);
 -- Categories table
 CREATE TABLE IF NOT EXISTS categories (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
-    name_en TEXT NOT NULL,
+    name_en TEXT NOT NULL UNIQUE,
     name_am TEXT NOT NULL,
     emoji TEXT,
     display_order INTEGER DEFAULT 0,

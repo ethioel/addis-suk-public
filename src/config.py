@@ -92,6 +92,43 @@ class Config:
             "Summit", "Kazanchis", "Arada", "Gulele", "Kirkos"
         ]
 
+        # Approximate city centers (lat, lon) for manual location selection
+        self.CITY_COORDS: dict[str, tuple[float, float]] = {
+            "Addis Ababa": (9.0320, 38.7529),
+            "Bahir Dar": (11.5936, 37.3908),
+            "Gondar": (12.6096, 37.4663),
+            "Mekelle": (13.4967, 39.4753),
+            "Hawassa": (7.0621, 38.4764),
+            "Dire Dawa": (9.5931, 41.8661),
+            "Jimma": (7.6761, 36.8339),
+            "Harar": (9.3114, 42.1281),
+            "Debre Zeyit": (8.7378, 39.0686),
+            "Adama": (8.5404, 39.2700),
+        }
+
+        # Approximate Addis Ababa neighborhood centers (lat, lon)
+        self.ADDIS_SUBCITY_COORDS: dict[str, tuple[float, float]] = {
+            "Addis Ketema": (9.0333, 38.7333),
+            "Merkato": (9.0350, 38.7380),
+            "Akaki Kaliti": (8.8800, 38.7500),
+            "Lemi Kura": (8.9500, 38.8500),
+            "Kolfe Keranio": (9.0100, 38.7100),
+            "Lideta": (9.0200, 38.7400),
+            "Nifas Silk-Lafto": (8.9900, 38.7300),
+            "Yeka": (9.0333, 38.8000),
+            "Bole": (9.0050, 38.7900),
+            "Mexico": (9.0060, 38.7613),
+            "Megenagna": (9.0250, 38.8010),
+            "Piazza": (9.0350, 38.7540),
+            "Gerji": (9.0100, 38.8200),
+            "Sar Bet": (9.0180, 38.7530),
+            "Summit": (8.9858, 38.8199),
+            "Kazanchis": (9.0167, 38.7667),
+            "Arada": (9.0367, 38.7578),
+            "Gulele": (9.0500, 38.7300),
+            "Kirkos": (9.0100, 38.7500),
+        }
+
 
 def load_config() -> Config:
     """Load configuration."""
