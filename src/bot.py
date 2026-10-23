@@ -88,29 +88,6 @@ class AddisSukBot:
             event_type.middleware(UserMiddleware())
             event_type.middleware(RateLimitMiddleware())
 
-    async def _seed_categories(self):
-        categories = [
-            ("Vegetables", "የአቲካል ወተት", "🥦"),
-            ("Fruits", "ፍራፍሬ", "🍎"),
-            ("Meat", "ሥጋ", "🥩"),
-            ("Dairy", "ወተት", "🥛"),
-            ("Bakery", "ዳቦ", "🍞"),
-            ("Grains", "እህል", "🌾"),
-            ("Coffee", "ቡና", "☕"),
-            ("Household", "የቤት ሰረዝ", "🧴"),
-        ]
-        for i, (name_en, name_am, emoji) in enumerate(categories):
-            existing = await self.db.fetchone(
-                "SELECT id FROM categories WHERE name_en = ?", (name_en,)
-            )
-            if existing:
-                continue
-            await self.db.execute(
-                "INSERT INTO categories (name_en, name_am, emoji, display_order) VALUES (?, ?, ?, ?)",
-                (name_en, name_am, emoji, i)
-            )
-        logger.info("Categories seeded successfully.")
-
     async def _seed_demo_data(self):
         """Seed demonstration shops/items if the database is empty."""
         try:
@@ -127,7 +104,6 @@ class AddisSukBot:
             try:
                 await self.db.init()
                 logger.info("Database initialized.")
-                await self._seed_categories()
                 await self._seed_demo_data()
             except Exception as e:
                 logger.error(f"Startup error: {e}")
@@ -380,6 +356,7 @@ class AddisSukBot:
                 name = cat['name_am'] if lang == 'am' else cat['name_en']
                 keyboard.button(text=f"{emoji} {name}", callback_data=f"cat_{cat['id']}")
             keyboard.button(text="❌ Cancel", callback_data="cancel")
+            keyboard.adjust(2)
             await message.answer("📋 Categories" if lang == 'en' else "📋 የምርት ምድቦች",
                 reply_markup=keyboard.as_markup())
 
@@ -1158,7 +1135,10 @@ class AddisSukBot:
                 await callback.answer()
             except Exception:
                 pass  # Ignore if the query has already timed out or is invalid
-            cat_id = int(callback.data.split("_")[1])
+            raw = callback.data.split("_", 1)[1]
+            if not raw.isdigit():
+                return
+            cat_id = int(raw)
             category = await db.fetchone("SELECT * FROM categories WHERE id=?", (cat_id,))
             if not category:
                 return
@@ -1678,6 +1658,7 @@ class AddisSukBot:
                 name = cat['name_am'] if lang == 'am' else cat['name_en']
                 keyboard.button(text=f"{emoji} {name}", callback_data=f"cat_{cat['id']}")
             keyboard.button(text="❌ Cancel", callback_data="cancel")
+            keyboard.adjust(2)
             try:
                 await callback.message.edit_text(
                     "📋 Categories" if lang == 'en' else "📋 የምርት ምድቦች",
