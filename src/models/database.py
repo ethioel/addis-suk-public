@@ -164,9 +164,20 @@ class Database:
     async def init(self):
         async with aiosqlite.connect(self.db_path) as db:
             await db.executescript(SCHEMA)
+            await self._migrate(db)
             await self._dedupe_categories(db)
             await self._seed_categories(db)
             await db.commit()
+
+    @staticmethod
+    async def _migrate(db):
+        """Add columns missing in older databases."""
+        cursor = await db.execute("PRAGMA table_info(sellers)")
+        cols = {row[1] for row in await cursor.fetchall()}
+        if "views" not in cols:
+            await db.execute("ALTER TABLE sellers ADD COLUMN views INTEGER DEFAULT 0")
+        if "contact_clicks" not in cols:
+            await db.execute("ALTER TABLE sellers ADD COLUMN contact_clicks INTEGER DEFAULT 0")
 
     @staticmethod
     async def _dedupe_categories(db):
@@ -403,6 +414,17 @@ CREATE TABLE IF NOT EXISTS transactions (
 
 CREATE INDEX IF NOT EXISTS idx_transactions_user_id ON transactions(user_id);
 CREATE INDEX IF NOT EXISTS idx_transactions_status ON transactions(status);
+
+-- Custom locations added by admins
+CREATE TABLE IF NOT EXISTS custom_locations (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL UNIQUE,
+    name_am TEXT,
+    latitude REAL NOT NULL,
+    longitude REAL NOT NULL,
+    is_subcity INTEGER DEFAULT 0,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
 
 -- Payments table (alias for transactions, used by verify_payment handler)
 CREATE TABLE IF NOT EXISTS payments (
