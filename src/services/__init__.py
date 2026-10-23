@@ -454,12 +454,11 @@ class ItemService:
             LIMIT ? OFFSET ?
         """
         
-        params.extend([limit, offset])
-        
-        # Execute count (use only search params, not limit/offset)
-        search_params = params[:2] if len(params) >= 2 else ()
-        count_result = await self.db.fetchone(count_query, search_params)
+        # Execute count using only the search params (not limit/offset)
+        count_result = await self.db.fetchone(count_query, tuple(params))
         total_count = count_result['COUNT(*)'] if count_result else 0
+
+        params.extend([limit, offset])
         
         # Execute main query
         items = await self.db.fetchall(query_sql, params)
@@ -555,12 +554,12 @@ class ItemService:
             item_dict['distance_km'] = distance_km
             result_items.append(item_dict)
         
-        # Sort by total score (highest first), tie-break by featured then date
+        # Sort by total score (highest first), tie-break: featured first, then closer
         result_items.sort(key=lambda x: (
-            x.get('search_score', 0),
-            (x.get('featured_until') is None,  # featured first
-             x.get('distance_km', float('inf')))  # closer first
-        ), reverse=True)
+            -x.get('search_score', 0),
+            0 if x.get('featured_until') else 1,
+            x['distance_km'] if x.get('distance_km') is not None else float('inf'),
+        ))
         
         # Return top 'limit' items (already sorted)
         final_items = result_items[:limit]
