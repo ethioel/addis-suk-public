@@ -111,6 +111,55 @@ class TestItemService:
         )
         items, total = await item_service.search_items(query="tomato", limit=10)
         assert total >= 1
+
+    async def test_search_items_empty_query_nearby(self, item_service):
+        """Regression: empty-query nearby search (city selection path) must not crash.
+
+        Mirrors cb_loc_city: query='', user coords set, and one seller lacking
+        coordinates so the sort must tolerate None distances.
+        """
+        # Second seller with no coordinates
+        await item_service.db.execute(
+            "INSERT INTO users (telegram_id, first_name) VALUES (?, ?)",
+            (2, "Test2")
+        )
+        await item_service.db.execute(
+            "INSERT INTO sellers (user_id, shop_name, address, phone, city, status) "
+            "VALUES (?, ?, ?, ?, ?, ?)",
+            (2, "No Coords Shop", "Addr", "0911111111", "Adama", "approved")
+        )
+        await item_service.add_item(
+            seller_id=1, category_id=1, name_en="Onion", name_am="ሽንኩርት",
+            price=60.0, unit="kg"
+        )
+        await item_service.add_item(
+            seller_id=2, category_id=1, name_en="Potato", name_am="ድንቅ",
+            price=40.0, unit="kg"
+        )
+        await item_service.db.execute("UPDATE items SET status = 'approved'")
+        await item_service.db.execute(
+            "UPDATE sellers SET latitude = 9.03, longitude = 38.75 WHERE id = 1"
+        )
+        items, total = await item_service.search_items(
+            query="", user_lat=9.03, user_lon=38.75, limit=20
+        )
+        assert total >= 2
+        assert len(items) >= 2
+        # Items near the seller with coordinates should carry a distance
+        with_distance = [i for i in items if i.get('distance_km') is not None]
+        assert len(with_distance) >= 1
+
+    async def test_search_items_with_category(self, item_service):
+        """Regression: category filter + count query must bind all params."""
+        await item_service.add_item(
+            seller_id=1, category_id=1, name_en="Tomato", name_am="ቲማቲም",
+            price=80.0, unit="kg"
+        )
+        await item_service.db.execute("UPDATE items SET status = 'approved'")
+        items, total = await item_service.search_items(
+            query="tomato", category_id=1, limit=10
+        )
+        assert total >= 1
     
     async def test_haversine_distance(self, item_service):
         """Test distance calculation."""
