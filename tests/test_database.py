@@ -46,9 +46,65 @@ class TestDatabase:
         assert seller is not None
     
     async def test_category_seed(self, db):
-        """Test that categories are seeded."""
-        categories = await db.fetchall("SELECT * FROM categories")
-        assert len(categories) >= 8
+        """Test that the full default taxonomy is seeded."""
+        categories = await db.fetchall(
+            "SELECT name_en FROM categories ORDER BY display_order"
+        )
+        names = {r['name_en'] for r in categories}
+        assert len(names) >= 10
+        for expected in ("Vegetables", "Fruits", "Meat & Poultry", "Dairy & Eggs",
+                         "Grains & Pulses", "Spices & Oil", "Bakery & Injera",
+                         "Coffee, Tea & Drinks", "Snacks & Sweets", "Household & Care"):
+            assert expected in names
+
+    async def test_category_amharic_labels_fixed(self, db):
+        """Regression: old garbled Amharic labels must be refreshed on init."""
+        veg = await db.fetchone(
+            "SELECT name_am FROM categories WHERE name_en = 'Vegetables'"
+        )
+        assert veg['name_am'] == "አትክልቶች"
+
+    async def test_category_migration_preserves_ids(self, db):
+        """Old taxonomies migrate by rename so item category ids stay valid."""
+        # Simulate a database seeded with the old taxonomy
+        await db.execute("DELETE FROM categories")
+        old = [
+            ("Vegetables", "የአቲካል ወተት", "🥦", 0),
+            ("Meat", "ሥጋ", "🥩", 2),
+            ("Household", "የቤት ሰረዝ", "🧴", 6),
+        ]
+        for name, am, emoji, order in old:
+            await db.execute(
+                "INSERT INTO categories (name_en, name_am, emoji, display_order) "
+                "VALUES (?, ?, ?, ?)",
+                (name, am, emoji, order)
+            )
+        meat_id = (await db.fetchone(
+            "SELECT id FROM categories WHERE name_en = 'Meat'"
+        ))['id']
+        await db.execute(
+            "INSERT INTO items (seller_id, category_id, name_en, name_am, price, unit, status) "
+            "VALUES (1, ?, 'Beef', 'የበሬ ሥጋ', 220.0, 'kg', 'approved')",
+            (meat_id,)
+        )
+        await db.execute(
+            "INSERT INTO sellers (id, user_id, shop_name, address, phone, city, status) "
+            "VALUES (1, 1, 'S', 'A', '09', 'Addis Ababa', 'approved')"
+        )
+
+        await db.init()  # re-run migration + seeding
+
+        names = {r['name_en'] for r in await db.fetchall("SELECT name_en FROM categories")}
+        assert "Meat & Poultry" in names
+        assert "Household & Care" in names
+        assert "Meat" not in names
+        assert len(names) >= 10
+        # The Beef item must still point at the renamed (same-id) category
+        row = await db.fetchone(
+            "SELECT c.name_en FROM items i JOIN categories c ON i.category_id = c.id "
+            "WHERE i.name_en = 'Beef'"
+        )
+        assert row['name_en'] == "Meat & Poultry"
     
     async def test_indexes_exist(self, db):
         """Test that all required indexes exist."""

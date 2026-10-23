@@ -90,6 +90,45 @@ async def test_custom_locations_table_and_merge(db):
     assert "Gerji Mebrat" in sub_names
 
 
+@pytest.mark.asyncio
+async def test_demo_items_follow_new_taxonomy(db):
+    """Regression: demo items must land in the new logical groups, and the
+    fix-up pass must re-group leftovers from the old taxonomy."""
+    from src.seed_data import seed_database
+
+    # Pre-existing demo item seeded under the wrong group (shop kept
+    # non-approved so the demo seeder still runs)
+    await db.execute(
+        "INSERT INTO sellers (user_id, shop_name, address, phone, city, status) "
+        "VALUES (1, 'Old Demo', 'A', '09', 'Adama', 'pending')"
+    )
+    await db.execute(
+        "INSERT INTO items (seller_id, category_id, name_en, name_am, price, unit, status) "
+        "SELECT 1, (SELECT id FROM categories WHERE name_en = 'Household & Care'), "
+        "'Tea', 'ሻይ', 180.0, 'kg', 'approved'"
+    )
+
+    await seed_database(db)
+
+    tea = await db.fetchone(
+        "SELECT c.name_en FROM items i JOIN categories c ON i.category_id = c.id "
+        "WHERE i.name_en = 'Tea'"
+    )
+    assert tea['name_en'] == "Coffee, Tea & Drinks"
+
+    injera = await db.fetchone(
+        "SELECT c.name_en FROM items i JOIN categories c ON i.category_id = c.id "
+        "WHERE i.name_en = 'Injera'"
+    )
+    assert injera['name_en'] == "Bakery & Injera"
+
+    berbere = await db.fetchone(
+        "SELECT c.name_en FROM items i JOIN categories c ON i.category_id = c.id "
+        "WHERE i.name_en = 'Berbere'"
+    )
+    assert berbere['name_en'] == "Spices & Oil"
+
+
 def test_html_table_escapes_user_content():
     """Native HTML tables must escape markup and ampersands in cell values."""
     from src.bot import AddisSukBot
