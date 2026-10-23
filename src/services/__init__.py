@@ -65,15 +65,22 @@ class UserService:
         city: Optional[str] = None,
         sub_city: Optional[str] = None
     ) -> bool:
-        """Update user's location."""
+        """Update user's location. Only non-None fields are changed."""
+        fields = {
+            "latitude": latitude,
+            "longitude": longitude,
+            "city": city,
+            "sub_city": sub_city,
+        }
+        present = [(name, value) for name, value in fields.items() if value is not None]
+        if not present:
+            return False
+        clauses = [f"{name} = ?" for name, _ in present]
+        values = [value for _, value in present]
+        clauses.append("updated_at = CURRENT_TIMESTAMP")
         result = await self.db.execute(
-            """
-            UPDATE users 
-            SET latitude = ?, longitude = ?, city = ?, sub_city = ?, 
-                updated_at = CURRENT_TIMESTAMP
-            WHERE telegram_id = ?
-            """,
-            (latitude, longitude, city, sub_city, telegram_id)
+            f"UPDATE users SET {', '.join(clauses)} WHERE telegram_id = ?",
+            (*values, telegram_id)
         )
         return result.rowcount > 0
     
@@ -205,6 +212,71 @@ class SellerService:
             (seller_id,)
         )
         return result.rowcount > 0
+
+    async def verify_seller(self, seller_id: int, verified: bool = True) -> bool:
+        """Set or clear the verified badge for a seller."""
+        result = await self.db.execute(
+            """
+            UPDATE sellers 
+            SET is_verified = ?, verified_at = CURRENT_TIMESTAMP 
+            WHERE id = ?
+            """,
+            (1 if verified else 0, seller_id)
+        )
+        return result.rowcount > 0
+
+    async def update_seller_location(
+        self,
+        seller_id: int,
+        latitude: float,
+        longitude: float
+    ) -> bool:
+        """Set the GPS location of a seller's shop."""
+        result = await self.db.execute(
+            """
+            UPDATE sellers 
+            SET latitude = ?, longitude = ?, updated_at = CURRENT_TIMESTAMP 
+            WHERE id = ?
+            """,
+            (latitude, longitude, seller_id)
+        )
+        return result.rowcount > 0
+
+    async def increment_views(self, seller_id: int) -> None:
+        """Count one shop profile view."""
+        await self.db.execute(
+            "UPDATE sellers SET views = views + 1 WHERE id = ?", (seller_id,)
+        )
+
+    async def increment_contact_clicks(self, seller_id: int) -> None:
+        """Count one contact (phone) reveal."""
+        await self.db.execute(
+            "UPDATE sellers SET contact_clicks = contact_clicks + 1 WHERE id = ?", (seller_id,)
+        )
+
+    async def get_seller_analytics(self, seller_id: int) -> Dict[str, Any]:
+        """Aggregate shop analytics for a seller."""
+        row = await self.db.fetchone(
+            "SELECT views, contact_clicks, is_verified FROM sellers WHERE id = ?",
+            (seller_id,)
+        )
+        if not row:
+            return {}
+        items = await self.db.fetchone(
+            "SELECT COUNT(*) as items_total, "
+            "SUM(CASE WHEN status = 'approved' THEN 1 ELSE 0 END) as items_approved, "
+            "SUM(CASE WHEN status = 'pending' THEN 1 ELSE 0 END) as items_pending "
+            "FROM items WHERE seller_id = ?",
+            (seller_id,)
+        )
+        return {
+            'views': row['views'] or 0,
+            'contact_clicks': row['contact_clicks'] or 0,
+            'is_verified': bool(row['is_verified']),
+            'items_total': items['items_total'] or 0,
+            'items_approved': items['items_approved'] or 0,
+            'items_pending': items['items_pending'] or 0,
+        }
 
     async def get_shop_details(self, seller_id: int) -> Optional[Dict[str, Any]]:
         """Get a shop profile with aggregate stats."""
@@ -350,9 +422,9 @@ class ItemService:
             """
             SELECT i.* FROM items i
             JOIN sellers s ON i.seller_id = s.id
-            WHERE s.user_id = ? 
+            WHERE i.seller_id = ? 
             AND (i.name_en LIKE ? OR i.name_am LIKE ?)
-            AND i.status = 'approved'
+            AND i.status IN ('approved', 'pending')
             """,
             (seller_id, f"%{item_name}%", f"%{item_name}%")
         )
@@ -360,11 +432,11 @@ class ItemService:
         if not item:
             return False, 0
         
-        # Update price
+        # Update price and send back to moderation queue
         await self.db.execute(
             """
             UPDATE items 
-            SET price = ?, updated_at = CURRENT_TIMESTAMP 
+            SET price = ?, status = 'pending', updated_at = CURRENT_TIMESTAMP 
             WHERE id = ?
             """,
             (price, item['id'])
@@ -444,7 +516,7 @@ class ItemService:
         query_sql = f"""
             SELECT i.*, 
                    s.shop_name, s.address, s.city, s.sub_city,
-                   s.latitude, s.longitude,
+                   s.latitude, s.longitude, s.is_verified,
                    c.name_en as category_name_en, c.name_am as category_name_am
             FROM items i
             JOIN sellers s ON i.seller_id = s.id
@@ -607,16 +679,16 @@ class FavoriteService:
         self.db = db
     
     async def add_favorite(self, user_id: int, item_id: int) -> bool:
-        """Add item to favorites."""
+        """Add item to favorites. Returns False if already favorited."""
         try:
-            await self.db.execute(
+            result = await self.db.execute(
                 """
                 INSERT OR IGNORE INTO favorites (user_id, item_id)
                 VALUES (?, ?)
                 """,
                 (user_id, item_id)
             )
-            return True
+            return result.rowcount > 0
         except Exception:
             return False
     
