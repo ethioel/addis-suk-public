@@ -1488,8 +1488,16 @@ class AddisSukBot:
         async def error_handler(event: ErrorEvent):
             exception = event.exception
             logger.error(f"Error: {exception}", exc_info=True)
-            if isinstance(event.update, Message):
-                await event.update.answer("❌ An error occurred. Please try again.")
+            update = event.update
+            callback = getattr(update, "callback_query", None)
+            message = getattr(update, "message", None)
+            try:
+                if callback is not None and callback.message is not None:
+                    await callback.message.answer("❌ An error occurred. Please try again.")
+                elif message is not None:
+                    await message.answer("❌ An error occurred. Please try again.")
+            except Exception:
+                pass
         self.dp.errors.register(error_handler)
 
     async def _perform_search(self, message: Message, query: str, db: Database, user: dict, lang: str):
