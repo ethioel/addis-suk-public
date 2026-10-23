@@ -20,18 +20,9 @@ CITY_LOCATIONS: Dict[str, Tuple[float, float]] = {
     "Adama": (8.5393, 39.2258),
 }
 
-# Demonstration categories
-SEED_CATEGORIES = [
-    (1, "Vegetables", "የአቲካል ወተት", "🥦", 1),
-    (2, "Fruits", "ፍራፍሬ", "🍎", 2),
-    (3, "Meat", "ሥጋ", "🥩", 3),
-    (4, "Dairy", "አሟራ ምርት", "🥛", 4),
-    (5, "Bakery", "እንቁላል", "🍞", 5),
-    (6, "Coffee", "ቡና", "☕", 6),
-    (7, "Household", "ቤት መሰረቻዊ", "🧴", 7),
-]
-
-# Demonstration shops in different cities
+# Demonstration shops in different cities.
+# Items reference categories by name (resolved from the seeded taxonomy in
+# src/models/database.py, DEFAULT_CATEGORIES).
 SEED_SHOPS: List[Dict[str, Any]] = [
     {
         "shop_name": "Mercato Fresh Produce",
@@ -42,9 +33,9 @@ SEED_SHOPS: List[Dict[str, Any]] = [
         "latitude": 9.0350,
         "longitude": 38.7489,
         "items": [
-            ("Tomato", "መብሃሪ", 12.5, "kg", 1, "2024-01-15"),
-            ("Onion", "ድንሽ", 8.0, "kg", 1, "2024-01-10"),
-            ("Potato", "ድሩስ", 6.5, "kg", 1, "2024-02-01"),
+            ("Tomato", "ቲማቲም", 12.5, "kg", "Vegetables", "2024-01-15"),
+            ("Onion", "ሽንኩርት", 8.0, "kg", "Vegetables", "2024-01-10"),
+            ("Potato", "ድንች", 6.5, "kg", "Vegetables", "2024-02-01"),
         ],
     },
     {
@@ -56,8 +47,8 @@ SEED_SHOPS: List[Dict[str, Any]] = [
         "latitude": 11.5980,
         "longitude": 37.3905,
         "items": [
-            ("Tomato", "መብሃሪ", 15.0, "kg", 1, "2024-01-20"),
-            ("Lettuce", "ሃስላ", 25.0, "piece", 1, "2024-01-15"),
+            ("Tomato", "ቲማቲም", 15.0, "kg", "Vegetables", "2024-01-20"),
+            ("Lettuce", "ሰላጣ", 25.0, "piece", "Vegetables", "2024-01-15"),
         ],
     },
     {
@@ -69,8 +60,8 @@ SEED_SHOPS: List[Dict[str, Any]] = [
         "latitude": 12.6110,
         "longitude": 37.2330,
         "items": [
-            ("Beef", "ሥጋ (በእንውဃ)", 220.0, "kg", 3, "2024-01-25"),
-            ("Chicken", "ዝርዝር", 180.0, "kg", 3, "2024-01-25"),
+            ("Beef", "የበሬ ሥጋ", 220.0, "kg", "Meat & Poultry", "2024-01-25"),
+            ("Chicken", "የዶሮ ሥጋ", 180.0, "kg", "Meat & Poultry", "2024-01-25"),
         ],
     },
     {
@@ -82,9 +73,10 @@ SEED_SHOPS: List[Dict[str, Any]] = [
         "latitude": 6.7950,
         "longitude": 38.4910,
         "items": [
-            ("Milk", "ወተት", 35.0, "liter", 4, "2024-02-05"),
-            ("Yogurt", "የነጸ አማራዊ", 25.0, "cup", 4, "2024-02-05"),
-            ("Butter", "በተኬው", 180.0, "pack", 4, "2024-02-05"),
+            ("Milk", "ወተት", 35.0, "liter", "Dairy & Eggs", "2024-02-05"),
+            ("Yogurt", "እርጎ", 25.0, "cup", "Dairy & Eggs", "2024-02-05"),
+            ("Butter", "ቅቤ", 180.0, "pack", "Dairy & Eggs", "2024-02-05"),
+            ("Eggs", "እንቁላል", 22.0, "dozen", "Dairy & Eggs", "2024-02-05"),
         ],
     },
     {
@@ -96,8 +88,9 @@ SEED_SHOPS: List[Dict[str, Any]] = [
         "latitude": 13.5060,
         "longitude": 39.4865,
         "items": [
-            ("Coffee Beans", "ቡና ድሮ", 450.0, "kg", 6, "2024-01-30"),
-            ("Tea", "ሽა჈", 180.0, "kg", 7, "2024-01-30"),
+            ("Coffee Beans", "የቡና ዘር", 450.0, "kg", "Coffee, Tea & Drinks", "2024-01-30"),
+            ("Tea", "ሻይ", 180.0, "kg", "Coffee, Tea & Drinks", "2024-01-30"),
+            ("Soda", "ሶዳ", 35.0, "piece", "Coffee, Tea & Drinks", None),
         ],
     },
     {
@@ -109,9 +102,9 @@ SEED_SHOPS: List[Dict[str, Any]] = [
         "latitude": 9.5930,
         "longitude": 41.9620,
         "items": [
-            ("Banana", "በንለን", 28.0, "kg", 2, None),
-            ("Mango", "መንግት", 85.0, "kg", 2, None),
-            ("Papaya", "ፓጣኛ", 35.0, "piece", 2, None),
+            ("Banana", "ሙዝ", 28.0, "kg", "Fruits", None),
+            ("Mango", "ማንጎ", 85.0, "kg", "Fruits", None),
+            ("Papaya", "ፓፒያ", 35.0, "piece", "Fruits", None),
         ],
     },
     {
@@ -123,13 +116,14 @@ SEED_SHOPS: List[Dict[str, Any]] = [
         "latitude": 7.6700,
         "longitude": 38.4900,
         "items": [
-            ("Bread", "እንቁላል", 18.0, "loaf", 5, None),
-            ("Cookies", "ኩኪስ", 45.0, "pack", 5, None),
-            ("Cake", "ኬክ", 150.0, "piece", 5, None),
+            ("Bread", "ዳቦ", 18.0, "loaf", "Bakery & Injera", None),
+            ("Injera", "እንጀራ", 30.0, "piece", "Bakery & Injera", None),
+            ("Cake", "ኬክ", 150.0, "piece", "Bakery & Injera", None),
+            ("Cookies", "ብስኩት", 45.0, "pack", "Snacks & Sweets", None),
         ],
     },
     {
-        "shop_name": "Harar Household Goods",
+        "shop_name": "Harar Market Goods",
         "address": "Harar Paga, Harar",
         "phone": "0918899000",
         "city": "Harar",
@@ -137,9 +131,11 @@ SEED_SHOPS: List[Dict[str, Any]] = [
         "latitude": 9.3090,
         "longitude": 42.0800,
         "items": [
-            ("Soap", "ሱፍና", 12.0, "piece", 7, None),
-            ("Salt", "ጨው", 8.0, "pack", 7, None),
-            ("Oil", "ባቢኩል", 220.0, "liter", 7, None),
+            ("Soap", "ሳሙና", 12.0, "piece", "Household & Care", None),
+            ("Tissue", "ቲሸው", 60.0, "pack", "Household & Care", None),
+            ("Berbere", "በርበሬ", 350.0, "kg", "Spices & Oil", None),
+            ("Cooking Oil", "የምግብ ዘይት", 220.0, "liter", "Spices & Oil", None),
+            ("Salt", "ጨው", 8.0, "pack", "Spices & Oil", None),
         ],
     },
     {
@@ -151,10 +147,11 @@ SEED_SHOPS: List[Dict[str, Any]] = [
         "latitude": 8.5380,
         "longitude": 39.2260,
         "items": [
-            ("Onion", "ድንሽ", 7.5, "kg", 1, None),
-            ("Garlic", "ስንስምን", 90.0, "kg", 1, None),
-            ("Chicken", "ዝርዝር", 175.0, "kg", 3, None),
-            ("Eggs", "እንደር", 22.0, "dozen", 3, None),
+            ("Onion", "ሽንኩርት", 7.5, "kg", "Vegetables", None),
+            ("Garlic", "ነጭ", 90.0, "kg", "Vegetables", None),
+            ("Teff", "ጤፍ", 120.0, "kg", "Grains & Pulses", None),
+            ("Shiro Powder", "ሽሮ ዱቄት", 260.0, "kg", "Grains & Pulses", None),
+            ("Chicken", "የዶሮ ሥጋ", 175.0, "kg", "Meat & Poultry", None),
         ],
     },
     {
@@ -166,28 +163,59 @@ SEED_SHOPS: List[Dict[str, Any]] = [
         "latitude": 9.0500,
         "longitude": 38.7620,
         "items": [
-            ("Avocado", "አቕድን", 120.0, "kg", 2, None),
-            ("Spinach", "አስፋላጥ", 30.0, "bunch", 1, None),
-            ("Beef", "ሥጋ (በእንውဃ)", 240.0, "kg", 3, None),
-            ("Coffee Beans", "ቡና ድሮ", 520.0, "kg", 6, None),
-            ("Milk", "ወተት", 42.0, "liter", 4, None),
+            ("Avocado", "አቮካዶ", 120.0, "kg", "Fruits", None),
+            ("Collard Greens", "ጎመን", 30.0, "bunch", "Vegetables", None),
+            ("Beef", "የበሬ ሥጋ", 240.0, "kg", "Meat & Poultry", None),
+            ("Coffee Beans", "የቡና ዘር", 520.0, "kg", "Coffee, Tea & Drinks", None),
+            ("Milk", "ወተት", 42.0, "liter", "Dairy & Eggs", None),
         ],
     },
 ]
+
+# Corrects demo items seeded by older versions that used the old taxonomy
+# (e.g. Eggs under Meat, Tea/Oil/Salt under Household). Idempotent.
+ITEM_CATEGORY_FIXES: Dict[str, str] = {
+    "Tea": "Coffee, Tea & Drinks",
+    "Coffee Beans": "Coffee, Tea & Drinks",
+    "Eggs": "Dairy & Eggs",
+    "Milk": "Dairy & Eggs",
+    "Yogurt": "Dairy & Eggs",
+    "Butter": "Dairy & Eggs",
+    "Oil": "Spices & Oil",
+    "Salt": "Spices & Oil",
+    "Cookies": "Snacks & Sweets",
+    "Bread": "Bakery & Injera",
+    "Chicken": "Meat & Poultry",
+    "Beef": "Meat & Poultry",
+    "Tomato": "Vegetables",
+    "Onion": "Vegetables",
+    "Potato": "Vegetables",
+    "Lettuce": "Vegetables",
+    "Garlic": "Vegetables",
+    "Spinach": "Vegetables",
+    "Banana": "Fruits",
+    "Mango": "Fruits",
+    "Papaya": "Fruits",
+    "Avocado": "Fruits",
+    "Soap": "Household & Care",
+}
 
 
 async def seed_database(db) -> bool:
     """Seed the database with demonstration data. Idempotent."""
     try:
-        # Seed categories
-        for cat_id, name_en, name_am, emoji, order in SEED_CATEGORIES:
-            await db.execute(
-                """
-                INSERT OR IGNORE INTO categories (id, name_en, name_am, emoji, display_order, is_active)
-                VALUES (?, ?, ?, ?, ?, 1)
-                """,
-                (cat_id, name_en, name_am, emoji, order)
-            )
+        # Resolve category ids by name (categories are seeded by Database.init)
+        cat_rows = await db.fetchall("SELECT id, name_en FROM categories")
+        cat_ids: Dict[str, int] = {r['name_en']: r['id'] for r in cat_rows}
+
+        # Re-group items from databases seeded with the old taxonomy
+        for item_name, cat_name in ITEM_CATEGORY_FIXES.items():
+            cid = cat_ids.get(cat_name)
+            if cid:
+                await db.execute(
+                    "UPDATE items SET category_id = ? WHERE name_en = ? AND category_id != ?",
+                    (cid, item_name, cid)
+                )
 
         # Check if shops already seeded
         existing = await db.fetchone("SELECT COUNT(*) as cnt FROM sellers WHERE status = 'approved'")
@@ -217,7 +245,12 @@ async def seed_database(db) -> bool:
             )
             seller_id = cursor.lastrowid
 
-            for name_en, name_am, price, unit, cat_id, recorded_at in shop["items"]:
+            for name_en, name_am, price, unit, cat_name, recorded_at in shop["items"]:
+                cat_id = cat_ids.get(cat_name)
+                if not cat_id:
+                    logger.warning("Unknown category '%s' for item '%s' — skipped",
+                                   cat_name, name_en)
+                    continue
                 cursor = await db.execute(
                     """
                     INSERT INTO items (seller_id, category_id, name_en, name_am, price, unit, status)

@@ -157,6 +157,33 @@ class SearchLog:
 
 
 class Database:
+    # Default product categories (name_en, name_am, emoji), in logical
+    # market-walk order: fresh produce -> animal products -> pantry staples
+    # -> prepared staples -> beverages -> snacks -> non-food.
+    DEFAULT_CATEGORIES = [
+        ("Vegetables", "አትክልቶች", "🥦"),
+        ("Fruits", "ፍራፍሬዎች", "🍎"),
+        ("Meat & Poultry", "ሥጋና ዶሮ", "🥩"),
+        ("Dairy & Eggs", "ወተትና እንቁላል", "🥛"),
+        ("Grains & Pulses", "እህልና ጥራጥሬ", "🌾"),
+        ("Spices & Oil", "ቅመምና ዘይት", "🌶️"),
+        ("Bakery & Injera", "ዳቦና እንጀራ", "🍞"),
+        ("Coffee, Tea & Drinks", "ቡና፣ ሻይና መጠጥ", "☕"),
+        ("Snacks & Sweets", "መክሰስና ጣፋጭ", "🍪"),
+        ("Household & Care", "የቤትና ግል ንጽህና", "🧴"),
+    ]
+
+    # Old -> new category names, migrated once during seeding so existing
+    # databases keep their category ids (and therefore their items).
+    CATEGORY_RENAMES = {
+        "Meat": "Meat & Poultry",
+        "Dairy": "Dairy & Eggs",
+        "Grains": "Grains & Pulses",
+        "Coffee": "Coffee, Tea & Drinks",
+        "Bakery": "Bakery & Injera",
+        "Household": "Household & Care",
+    }
+
     def __init__(self, db_path: str = "data/addis_suk.db"):
         self.db_path = Path(db_path)
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
@@ -205,24 +232,36 @@ class Database:
             await db.execute("DELETE FROM categories WHERE id = ?", (dupe_id,))
 
     async def _seed_categories(self, db):
-        """Seed default categories if none exist."""
-        result = await db.execute("SELECT COUNT(*) FROM categories")
-        count = (await result.fetchone())[0]
-        if count == 0:
-            categories = [
-                ("Vegetables", "የአቲካል ወተት", "🥦", 0),
-                ("Fruits", "ፍራፍሬ", "🍎", 1),
-                ("Meat", "ሥጋ", "🥩", 2),
-                ("Dairy", "ወተት", "🥛", 3),
-                ("Bakery", "ዳቦ", "🍞", 4),
-                ("Grains", "እህል", "🌾", 5),
-                ("Coffee", "ቡና", "☕", 6),
-                ("Household", "የቤት ሰረዝ", "🧴", 7),
-            ]
-            await db.executemany(
-                "INSERT INTO categories (name_en, name_am, emoji, display_order) VALUES (?, ?, ?, ?)",
-                categories
+        """Seed default categories and refresh names/emoji/order when the
+        taxonomy changes. Renames preserve category ids so items stay grouped."""
+        for old_name, new_name in self.CATEGORY_RENAMES.items():
+            target = await db.execute(
+                "SELECT 1 FROM categories WHERE name_en = ?", (new_name,)
             )
+            if await target.fetchone():
+                continue
+            await db.execute(
+                "UPDATE categories SET name_en = ? WHERE name_en = ?",
+                (new_name, old_name)
+            )
+
+        for order, (name_en, name_am, emoji) in enumerate(self.DEFAULT_CATEGORIES):
+            existing = await db.execute(
+                "SELECT id FROM categories WHERE name_en = ?", (name_en,)
+            )
+            row = await existing.fetchone()
+            if row:
+                await db.execute(
+                    "UPDATE categories SET name_am = ?, emoji = ?, display_order = ?, "
+                    "is_active = 1 WHERE id = ?",
+                    (name_am, emoji, order, row[0])
+                )
+            else:
+                await db.execute(
+                    "INSERT INTO categories (name_en, name_am, emoji, display_order) "
+                    "VALUES (?, ?, ?, ?)",
+                    (name_en, name_am, emoji, order)
+                )
 
     async def execute(self, query: str, params: tuple = ()):
         async with aiosqlite.connect(self.db_path) as db:
