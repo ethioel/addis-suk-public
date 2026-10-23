@@ -64,6 +64,18 @@ class UserMiddleware(BaseMiddleware):
                 user = await db.fetchone(
                     "SELECT * FROM users WHERE telegram_id = ?", (user_id,)
                 )
+                if not user:
+                    # Auto-create so handlers can rely on a valid user row
+                    # (e.g. after a redeploy wipes the ephemeral database).
+                    await db.execute(
+                        "INSERT OR IGNORE INTO users (telegram_id, username, first_name, last_name) "
+                        "VALUES (?, ?, ?, ?)",
+                        (user_id, event.from_user.username,
+                         event.from_user.first_name or "", event.from_user.last_name)
+                    )
+                    user = await db.fetchone(
+                        "SELECT * FROM users WHERE telegram_id = ?", (user_id,)
+                    )
                 if user:
                     # Convert sqlite3.Row to dict for consistency with code that expects dict methods
                     data['user'] = dict(user)
