@@ -1,4 +1,5 @@
 import asyncio
+import html
 import logging
 import sys
 from pathlib import Path
@@ -65,6 +66,7 @@ class Form(StatesGroup):
     ALERT_PRICE = State()
     BROADCAST_MESSAGE = State()
     VERIFY_PAYMENT = State()
+    PROMOTE_MESSAGE = State()
 
 
 class AddisSukBot:
@@ -267,6 +269,8 @@ class AddisSukBot:
                     "📝 /register - Register your shop\n"
                     "📋 /mylistings - View your items\n"
                     "📍 /setlocation - Set your shop location\n"
+                    "📊 /analytics - Shop analytics (premium)\n"
+                    "📢 /promote - Broadcast deals nearby (premium)\n"
                     "📉 /update [item] [price] - Update your prices\n"
                     "🗑 /delete [item] - Remove a listing"
                 ),
@@ -286,6 +290,8 @@ class AddisSukBot:
                     "📝 /register - ሱቅዎን ለመመዝገብ\n"
                     "📋 /mylistings - የእርስዎን ምርቶች ለመመልከት\n"
                     "📍 /setlocation - የሱቅዎን አድራሻ ለማስተካከል\n"
+                    "📊 /analytics - የሱቅ ትንታኔ (ፕሪሚየም)\n"
+                    "📢 /promote - ማስተዋወቂያ ለመላክ (ፕሪሚየም)\n"
                     "📉 /update [ምርት] [ዋጋ] - ዋጋ ለማዘመን\n"
                     "🗑 /delete [ምርት] - ምርት ለማስወገድ"
                 ),
@@ -457,6 +463,17 @@ class AddisSukBot:
         @self.router.message(lambda m: m.location is not None)
         async def handle_location(message: Message, db: Database, user: dict, lang: str):
             loc = message.location
+            seller = await self.services.seller.get_seller_by_user_id(user['id'])
+            if seller and seller['status'] == 'approved':
+                await self.services.seller.update_seller_location(
+                    seller['id'], loc.latitude, loc.longitude
+                )
+                await message.answer(
+                    "📍 Shop location saved! Buyers nearby can now find you."
+                    if lang == 'en' else "📍 የሱቅዎ አካባቢ ተቀምጧል! በአቅራቢያ ያሉ ገዦች ሱቅዎን ያገኙዎታል።",
+                    reply_markup=main_menu(lang)
+                )
+                return
             await self.services.user.update_user_location(
                 user['telegram_id'], latitude=loc.latitude, longitude=loc.longitude
             )
@@ -472,10 +489,11 @@ class AddisSukBot:
             await self._display_results(message, items, total, lang, "nearby")
 
         @self.router.message(lambda m: m.text in (LOCATION_MANUAL_TEXT, LOCATION_MANUAL_TEXT_AM))
-        async def handle_manual_location(message: Message, state: FSMContext, lang: str):
+        async def handle_manual_location(message: Message, state: FSMContext, db: Database, lang: str):
             await state.clear()
-            city_names = list(config.CITIES.keys())
-            city_names_am = [config.CITIES[c] for c in city_names]
+            cities = await self._merged_cities(db)
+            city_names = [c[0] for c in cities]
+            city_names_am = [c[1] for c in cities]
             await message.answer(
                 "🏙️ Select your city:" if lang == 'en' else "🏙️ ከተማዎን ይምረጡ፦",
                 reply_markup=cities_keyboard(city_names, city_names_am, lang)
@@ -597,9 +615,9 @@ class AddisSukBot:
             success, _ = await self.services.item.update_item_price(seller['id'], args[0], new_price)
 
             if lang == 'en':
-                msg = f"✅ Price updated to {new_price}" if success else "❌ Item not found."
+                msg = f"✅ Price updated to {new_price} — awaiting admin approval." if success else "❌ Item not found."
             else:
-                msg = f"✅ ዋጋው ወደ {new_price} ተዘምኗል" if success else "❌ ምርቱ አልተገኘም።"
+                msg = f"✅ ዋጋው ወደ {new_price} ተዘምኗል — ማጽደቅን በመጠበቅ ላይ።" if success else "❌ ምርቱ አልተገኘም።"
             await message.answer(msg)
 
         @self.router.message(Command("delete"))
@@ -748,16 +766,8 @@ class AddisSukBot:
             if message.from_user.id not in config.ADMIN_IDS:
                 await message.answer("❌ Access denied." if lang == 'en' else "❌ ፍቃድ አልተሰጠዎትም።")
                 return
-            stats = await db.fetchone(
-                "SELECT (SELECT COUNT(*) FROM sellers WHERE status='pending') as pending_sellers, "
-                "(SELECT COUNT(*) FROM items WHERE status='pending') as pending_items, "
-                "(SELECT COUNT(*) FROM users WHERE subscription_tier='premium') as premium_users"
-            )
             await message.answer(
-                f"📊 *Admin Dashboard*\n\n"
-                f"Pending Sellers: {stats['pending_sellers']}\n"
-                f"Pending Items: {stats['pending_items']}\n"
-                f"Premium Users: {stats['premium_users']}",
+                await self._dashboard_text(db),
                 reply_markup=admin_keyboard(), parse_mode="Markdown"
             )
 
@@ -827,31 +837,268 @@ class AddisSukBot:
         async def cmd_stats(message: Message, db: Database, lang: str):
             if message.from_user.id not in config.ADMIN_IDS:
                 return
-            rows = await db.fetchall(
-                "SELECT date(created_at) as day, COUNT(*) as cnt FROM search_logs "
-                "WHERE created_at >= date('now', '-7 days') GROUP BY date(created_at) ORDER BY day DESC"
-            )
-            parts = ["📈 *Weekly Search Stats*"]
-            for row in rows:
-                parts.append(f"• {row['day']}: {row['cnt']} searches")
-            await message.answer("\n".join(parts) or "No data yet.", parse_mode="Markdown")
+            await message.answer(await self._weekly_stats_text(db), parse_mode="Markdown")
 
         @self.router.message(Command("earnings"))
         async def cmd_earnings(message: Message, db: Database, lang: str):
             if message.from_user.id not in config.ADMIN_IDS:
                 return
-            rows = await db.fetchall(
-                "SELECT type, COUNT(*) as cnt, SUM(amount) as total FROM transactions "
-                "WHERE status='completed' GROUP BY type ORDER BY total DESC"
+            await message.answer(await self._revenue_text(db), parse_mode="Markdown")
+
+        @self.router.message(Command("analytics"))
+        async def cmd_analytics(message: Message, db: Database, user: dict, lang: str):
+            user_info = await self.services.user.get_user_subscription_info(message.from_user.id)
+            if not user_info.get('is_premium', False):
+                await message.answer(
+                    "⭐ Premium feature. Use /subscribe to upgrade."
+                    if lang == 'en' else "⭐ የፕሪሚየም አገልግሎት። ለማሻሻል /subscribe ይጠቀሙ።"
+                )
+                return
+            seller = await self.services.seller.get_seller_by_user_id(user['id'])
+            if not seller or seller['status'] != 'approved':
+                await message.answer("❌ Seller registration required." if lang == 'en' else "❌ የሻጭ ምዝገባ ያስፈልጋል።")
+                return
+            stats = await self.services.seller.get_seller_analytics(seller['id'])
+            badge = "✅ Verified" if stats.get('is_verified') else "⭕ Not verified"
+            await message.answer(
+                f"📊 *Analytics for {seller['shop_name']}*\n\n"
+                f"👀 Shop views: {stats.get('views', 0)}\n"
+                f"📞 Contact clicks: {stats.get('contact_clicks', 0)}\n"
+                f"📦 Approved items: {stats.get('items_approved', 0)}\n"
+                f"⏳ Pending items: {stats.get('items_pending', 0)}\n"
+                f"{badge}",
+                parse_mode="Markdown"
             )
-            parts = ["💰 *Revenue Report*"]
-            total_rev = 0
-            for row in rows:
-                total = row['total'] or 0
-                total_rev += total
-                parts.append(f"• {row['type']}: {row['cnt']} txns, {total:.2f} Br")
-            parts.append(f"\n📊 *Total Revenue: {total_rev:.2f} Br*")
-            await message.answer("\n".join(parts), parse_mode="Markdown")
+
+        @self.router.message(Command("promote"))
+        async def cmd_promote(message: Message, state: FSMContext, db: Database, user: dict, lang: str):
+            user_info = await self.services.user.get_user_subscription_info(message.from_user.id)
+            if not user_info.get('is_premium', False):
+                await message.answer(
+                    "⭐ Premium feature. Use /subscribe to upgrade."
+                    if lang == 'en' else "⭐ የፕሪሚየም አገልግሎት። ለማሻሻል /subscribe ይጠቀሙ።"
+                )
+                return
+            seller = await self.services.seller.get_seller_by_user_id(user['id'])
+            if not seller or seller['status'] != 'approved':
+                await message.answer("❌ Seller registration required." if lang == 'en' else "❌ የሻጭ ምዝገባ ያስፈልጋል።")
+                return
+            await state.set_state(Form.PROMOTE_MESSAGE)
+            await state.update_data(seller_city=seller['city'])
+            await message.answer(
+                "📢 Send the promo message to broadcast to buyers in your city:"
+                if lang == 'en' else "📢 ለከተማዎ ገዦች የሚላከውን የማስተዋወቂያ መልእክት ይላኩ፦"
+            )
+
+        @self.router.message(Form.PROMOTE_MESSAGE)
+        async def process_promote(message: Message, state: FSMContext, db: Database, user: dict, lang: str):
+            data = await state.get_data()
+            await state.clear()
+            seller = await self.services.seller.get_seller_by_user_id(user['id'])
+            if not seller or seller['status'] != 'approved':
+                return
+            city = data.get('seller_city')
+            if city:
+                users = await db.fetchall(
+                    "SELECT telegram_id FROM users WHERE city = ? AND telegram_id != ?",
+                    (city, message.from_user.id)
+                )
+            else:
+                users = await db.fetchall(
+                    "SELECT telegram_id FROM users WHERE telegram_id != ?",
+                    (message.from_user.id,)
+                )
+            text = f"📢 *{seller['shop_name']}*\n\n{message.text}"
+            sent = 0
+            for row in users:
+                try:
+                    await self.bot.send_message(row['telegram_id'], text, parse_mode="Markdown")
+                    sent += 1
+                except Exception:
+                    try:
+                        await self.bot.send_message(row['telegram_id'], text)
+                        sent += 1
+                    except Exception:
+                        pass
+            await db.execute(
+                "INSERT INTO broadcasts (admin_id, message, sent_count) VALUES (?, ?, ?)",
+                (user['id'], message.text, sent)
+            )
+            await message.answer(
+                f"✅ Promo sent to {sent} buyers in {city or 'all cities'}."
+                if lang == 'en' else f"✅ ማስተዋወቂያው ለ {sent} ገዦች ተልኳል ({city or 'ሁሉም ከተሞች'})።"
+            )
+
+        @self.router.message(Command("approve_premium"))
+        async def cmd_approve_premium(message: Message, db: Database, lang: str):
+            if message.from_user.id not in config.ADMIN_IDS:
+                await message.answer("❌ Access denied." if lang == 'en' else "❌ ፍቃድ አልተሰጠዎትም።")
+                return
+            args = get_args(message).split()
+            if not args or not args[0].isdigit():
+                await message.answer("Usage: /approve_premium [transaction_id]")
+                return
+            txn = await db.fetchone(
+                "SELECT * FROM transactions WHERE id = ? AND status = 'pending'",
+                (int(args[0]),)
+            )
+            if not txn:
+                await message.answer("❌ Pending transaction not found.")
+                return
+            await db.execute(
+                "UPDATE transactions SET status = 'completed', completed_at = CURRENT_TIMESTAMP WHERE id = ?",
+                (txn['id'],)
+            )
+            buyer = await db.fetchone("SELECT telegram_id FROM users WHERE id = ?", (txn['user_id'],))
+            if buyer:
+                await self.services.user.set_user_premium(buyer['telegram_id'], 1)
+                try:
+                    await self.bot.send_message(
+                        buyer['telegram_id'],
+                        "✅ Payment confirmed! Your Premium subscription is now active."
+                    )
+                except Exception:
+                    pass
+            await message.answer(
+                f"✅ Transaction #{txn['id']} approved — Premium activated for 1 month."
+            )
+
+        @self.router.message(Command("verify_seller"))
+        async def cmd_verify_seller(message: Message, db: Database, lang: str):
+            if message.from_user.id not in config.ADMIN_IDS:
+                await message.answer("❌ Access denied." if lang == 'en' else "❌ ፍቃድ አልተሰጠዎትም።")
+                return
+            args = get_args(message).split()
+            if not args or not args[0].isdigit():
+                await message.answer("Usage: /verify_seller [seller_id]")
+                return
+            success = await self.services.seller.verify_seller(int(args[0]))
+            await message.answer(
+                "✅ Seller verified! Buyers will see the ✅ badge."
+                if success else "❌ Seller not found."
+            )
+
+        @self.router.message(Command("addcity"))
+        async def cmd_addcity(message: Message, db: Database, lang: str):
+            if message.from_user.id not in config.ADMIN_IDS:
+                await message.answer("❌ Access denied." if lang == 'en' else "❌ ፍቃድ አልተሰጠዎትም።")
+                return
+            raw = get_args(message)
+            if not raw:
+                await message.answer(
+                    "Usage: /addcity <lat> <lon> <Name ...> [| <Amharic name>]\n"
+                    "Example: /addcity 11.5936 37.3908 Bahir Dar | ባሕር ዳር"
+                )
+                return
+            segments = raw.split("|")
+            tokens = segments[0].split()
+            if len(tokens) < 3:
+                await message.answer("❌ Need latitude, longitude and a name.")
+                return
+            try:
+                lat, lon = float(tokens[0]), float(tokens[1])
+            except ValueError:
+                await message.answer("❌ Invalid coordinates. Example: 11.5936 37.3908")
+                return
+            name = " ".join(tokens[2:]).strip()
+            name_am = segments[1].strip() if len(segments) > 1 else name
+            await db.execute(
+                "INSERT OR REPLACE INTO custom_locations (name, name_am, latitude, longitude, is_subcity) "
+                "VALUES (?, ?, ?, ?, 0)",
+                (name, name_am, lat, lon)
+            )
+            await message.answer(
+                f"✅ City added: {name} ({lat:.4f}, {lon:.4f})\nIt now appears in the city picker."
+            )
+
+        @self.router.message(Command("addsubcity"))
+        async def cmd_addsubcity(message: Message, db: Database, lang: str):
+            if message.from_user.id not in config.ADMIN_IDS:
+                await message.answer("❌ Access denied." if lang == 'en' else "❌ ፍቃድ አልተሰጠዎትም።")
+                return
+            raw = get_args(message)
+            tokens = raw.split("|")[0].split()
+            if len(tokens) < 3:
+                await message.answer(
+                    "Usage: /addsubcity <lat> <lon> <Name ...>\n"
+                    "Example: /addsubcity 9.01 38.76 Piassa"
+                )
+                return
+            try:
+                lat, lon = float(tokens[0]), float(tokens[1])
+            except ValueError:
+                await message.answer("❌ Invalid coordinates. Example: 9.01 38.76")
+                return
+            name = " ".join(tokens[2:]).strip()
+            await db.execute(
+                "INSERT OR REPLACE INTO custom_locations (name, name_am, latitude, longitude, is_subcity) "
+                "VALUES (?, ?, ?, ?, 1)",
+                (name, name, lat, lon)
+            )
+            await message.answer(
+                f"✅ Sub-city added: {name} ({lat:.4f}, {lon:.4f})\nIt now appears under Addis Ababa."
+            )
+
+        @self.router.message(Command("dellocation"))
+        async def cmd_dellocation(message: Message, db: Database, lang: str):
+            if message.from_user.id not in config.ADMIN_IDS:
+                await message.answer("❌ Access denied." if lang == 'en' else "❌ ፍቃድ አልተሰጠዎትም።")
+                return
+            name = get_args(message).strip()
+            if not name:
+                await message.answer("Usage: /dellocation <name>")
+                return
+            cursor = await db.execute(
+                "DELETE FROM custom_locations WHERE LOWER(name) = LOWER(?)", (name,)
+            )
+            await message.answer(
+                f"✅ Removed location: {name}" if cursor.rowcount else f"❌ Custom location '{name}' not found (built-in cities cannot be removed)."
+            )
+
+        @self.router.message(Command("listlocations"))
+        async def cmd_listlocations(message: Message, db: Database, lang: str):
+            if message.from_user.id not in config.ADMIN_IDS:
+                await message.answer("❌ Access denied." if lang == 'en' else "❌ ፍቃድ አልተሰጠዎትም።")
+                return
+            cities = await self._merged_cities(db)
+            subs = await self._merged_subcities(db)
+            html_parts = [
+                "📍 <b>Cities</b>",
+                "<table><tr><th>#</th><th>City</th><th>Amharic</th><th>Lat</th><th>Lon</th></tr>",
+            ]
+            for i, (name, name_am, lat, lon) in enumerate(cities, 1):
+                html_parts.append(
+                    f"<tr><td>{i}</td><td>{html.escape(str(name))}</td>"
+                    f"<td>{html.escape(str(name_am))}</td>"
+                    f"<td>{lat:.4f}</td><td>{lon:.4f}</td></tr>"
+                )
+            html_parts.append("</table>")
+            html_parts.append("🏙️ <b>Addis Ababa sub-cities</b>")
+            html_parts.append("<table><tr><th>#</th><th>Sub-city</th><th>Lat</th><th>Lon</th></tr>")
+            for i, (name, lat, lon) in enumerate(subs, 1):
+                html_parts.append(
+                    f"<tr><td>{i}</td><td>{html.escape(str(name))}</td>"
+                    f"<td>{lat:.4f}</td><td>{lon:.4f}</td></tr>"
+                )
+            html_parts.append("</table>")
+            try:
+                await message.answer("\n".join(html_parts), parse_mode="HTML")
+                return
+            except Exception:
+                pass
+            rows = [
+                [i, self._clean(n), self._clean(a), f"{la:.4f}", f"{lo:.4f}"]
+                for i, (n, a, la, lo) in enumerate(cities, 1)
+            ]
+            table = self._format_table(["#", "City", "Amharic", "Lat", "Lon"], rows)
+            sub_rows = [
+                [i, self._clean(n), f"{la:.4f}", f"{lo:.4f}"]
+                for i, (n, la, lo) in enumerate(subs, 1)
+            ]
+            sub_table = self._format_table(["#", "Sub-city", "Lat", "Lon"], sub_rows)
+            await message.answer(
+                f"📍 Cities\n```\n{table}\n```\n🏙️ Addis sub-cities\n```\n{sub_table}\n```"
+            )
 
     def _register_callbacks(self):
         @self.router.callback_query((F.data == "language") | F.data.startswith("lang_"))
@@ -927,7 +1174,7 @@ class AddisSukBot:
             cat_name = category['name_am'] if lang == 'am' else category['name_en']
 
             items = await db.fetchall(
-                """SELECT i.*, s.shop_name, s.city, s.latitude, s.longitude
+                """SELECT i.*, s.shop_name, s.city, s.latitude, s.longitude, s.is_verified
                    FROM items i JOIN sellers s ON i.seller_id=s.id
                    WHERE i.category_id=? AND i.status='approved' AND s.status='approved'
                    ORDER BY s.featured_until IS NULL, i.price ASC LIMIT 10""",
@@ -954,7 +1201,7 @@ class AddisSukBot:
                     idx,
                     self._clean(name),
                     f"{item['price']:g}/{item['unit']}",
-                    self._clean(item['shop_name']),
+                    f"✅ {self._clean(item['shop_name'])}" if item['is_verified'] else self._clean(item['shop_name']),
                     self._clean(item['city'] or "-"),
                 ])
 
@@ -990,20 +1237,27 @@ class AddisSukBot:
 
         @self.router.callback_query(F.data.startswith("fav_"))
         async def cb_favorite(callback: CallbackQuery, db: Database, user: dict, lang: str):
-            # Safely answer immediately to prevent Telegram query expiration timeouts
-            try:
-                await callback.answer()
-            except Exception:
-                pass  # Ignore if the query has already timed out or is invalid
             item_id = int(callback.data.split("_")[1])
             info = await self.services.user.get_user_subscription_info(callback.from_user.id)
             if not info.get('is_premium', False):
+                try:
+                    await callback.answer(
+                        "⭐ Favorites is a premium feature. Use /subscribe to upgrade."
+                        if lang == 'en' else "⭐ የተወዳጆች አገልግሎት ለፕሪሚየም ተጠቃሚዎች ብቻ ነው። /subscribe ይጠቀሙ።",
+                        show_alert=True
+                    )
+                except Exception:
+                    pass
                 return
+            if not user:
+                user = await self.services.user.get_or_create_user(
+                    telegram_id=callback.from_user.id
+                )
             success = await self.services.favorite.add_favorite(user['id'], item_id)
-            msg = "⭐ Added to favorites!" if success else "Already favorited!"
-            am_msg = "⭐ ተመራጭ ሆኗል!" if success else "ቀደም ሲል ተራት ላይ አለ!"
+            msg = "⭐ Added to favorites!" if success else "Already in favorites!"
+            am_msg = "⭐ ወደ ተወዳጆች ተጨምሯል!" if success else "ከዚህ ቀደም ተጨምሯል!"
             try:
-                await callback.answer(msg if lang == 'en' else am_msg)
+                await callback.answer(msg if lang == 'en' else am_msg, show_alert=True)
             except Exception:
                 pass  # Ignore if the answer is no longer valid
 
@@ -1157,6 +1411,9 @@ class AddisSukBot:
                     await callback.message.answer("Seller not found or not approved.")
                 return
             
+            await db.execute("UPDATE sellers SET views = views + 1 WHERE id = ?", (seller_id,))
+            badge = "✅ " if seller['is_verified'] else ""
+
             # Get items for this seller
             from src.services import Services
             services = Services(db)
@@ -1165,7 +1422,7 @@ class AddisSukBot:
             # Build the response
             try:
                 if items:
-                    parts = [f"🏪 *{seller['shop_name']}*\n"]
+                    parts = [f"🏪 *{badge}{seller['shop_name']}*\n"]
                     parts.append(f"📍 {seller['address']}, {seller['city']}\n")
                     parts.append(f"📞 {seller['phone']}\n")
                     parts.append(f"⭐ {len(items)} items available\n")
@@ -1181,16 +1438,19 @@ class AddisSukBot:
                     if len(items) > 10:
                         keyboard = InlineKeyboardBuilder()
                         keyboard.button(text="View All Items", callback_data=f"seller_all_{seller_id}")
+                        keyboard.button(text="📞 Contact", callback_data=f"contact_{seller_id}")
                         keyboard.button(text="❌ Close", callback_data="cancel")
                     else:
                         keyboard = InlineKeyboardBuilder()
+                        keyboard.button(text="📞 Contact", callback_data=f"contact_{seller_id}")
                         keyboard.button(text="❌ Close", callback_data="cancel")
                 else:
-                    parts = [f"🏪 *{seller['shop_name']}*\n"]
+                    parts = [f"🏪 *{badge}{seller['shop_name']}*\n"]
                     parts.append(f"📍 {seller['address']}, {seller['city']}\n")
                     parts.append(f"📞 {seller['phone']}\n")
                     parts.append("❌ No items available currently.")
                     keyboard = InlineKeyboardBuilder()
+                    keyboard.button(text="📞 Contact", callback_data=f"contact_{seller_id}")
                     keyboard.button(text="❌ Close", callback_data="cancel")
                 
                 await callback.message.edit_text(
@@ -1247,6 +1507,26 @@ class AddisSukBot:
                     "\n".join(parts), reply_markup=keyboard.as_markup(), parse_mode="Markdown"
                 )
 
+        @self.router.callback_query(F.data.startswith("contact_"))
+        async def cb_contact(callback: CallbackQuery, db: Database, lang: str):
+            try:
+                await callback.answer()
+            except Exception:
+                pass
+            seller_id = int(callback.data.split("_")[1])
+            seller = await db.fetchone(
+                "SELECT phone FROM sellers WHERE id = ? AND status = 'approved'", (seller_id,)
+            )
+            if not seller:
+                return
+            await db.execute(
+                "UPDATE sellers SET contact_clicks = contact_clicks + 1 WHERE id = ?", (seller_id,)
+            )
+            try:
+                await callback.answer(f"📞 {seller['phone']}", show_alert=True)
+            except Exception:
+                pass
+
         @self.router.callback_query(F.data == "search_shops")
         async def cb_search_shops(callback: CallbackQuery, state: FSMContext, db: Database, user: dict, lang: str):
             # Safely answer immediately to prevent Telegram query expiration timeouts
@@ -1272,7 +1552,8 @@ class AddisSukBot:
                 for i, shop in enumerate(shops[:5], 1):
                     distance = f"📍{shop.get('distance_km', 'N/A')}km" if shop.get('distance_km') else ""
                     items_count = shop.get('item_count', 0)
-                    parts.append(f"{i}. *{shop['shop_name']}* - {items_count} items {distance}")
+                    shop_badge = "✅ " if shop['is_verified'] else ""
+                    parts.append(f"{i}. *{shop_badge}{shop['shop_name']}* - {items_count} items {distance}")
                     parts.append(f"   📍 {shop['city']}, {shop['address']}\n")
                 
                 keyboard = InlineKeyboardBuilder()
@@ -1314,7 +1595,8 @@ class AddisSukBot:
                     min_price = shop.get('min_price', 0)
                     max_price = shop.get('max_price', 0)
                     price_range = f"{min_price}-{max_price}" if min_price and max_price and min_price != max_price else f"{min_price}"
-                    parts.append(f"{i}. *{shop['shop_name']}* - {items_count} items {distance}")
+                    shop_badge = "✅ " if shop['is_verified'] else ""
+                    parts.append(f"{i}. *{shop_badge}{shop['shop_name']}* - {items_count} items {distance}")
                     parts.append(f"   📍 {shop['city']}, {shop['address']}\n")
                     parts.append(f"   💰 Price range: {price_range}\n")
                     parts.append("")
@@ -1397,13 +1679,14 @@ class AddisSukBot:
             await self._display_results(callback.message, items, total, lang, query or "nearby")
 
         @self.router.callback_query(F.data == "loc_back_cities")
-        async def cb_loc_back_cities(callback: CallbackQuery, lang: str):
+        async def cb_loc_back_cities(callback: CallbackQuery, db: Database, lang: str):
             try:
                 await callback.answer()
             except Exception:
                 pass
-            city_names = list(config.CITIES.keys())
-            city_names_am = [config.CITIES[c] for c in city_names]
+            cities = await self._merged_cities(db)
+            city_names = [c[0] for c in cities]
+            city_names_am = [c[1] for c in cities]
             try:
                 await callback.message.edit_text(
                     "🏙️ Select your city:" if lang == 'en' else "🏙️ ከተማዎን ይምረጡ፦",
@@ -1419,25 +1702,28 @@ class AddisSukBot:
             except Exception:
                 pass
             idx = int(callback.data.split("_")[-1])
-            city_names = list(config.CITIES.keys())
-            if idx < 0 or idx >= len(city_names):
+            cities = await self._merged_cities(db)
+            if idx < 0 or idx >= len(cities):
                 return
-            city = city_names[idx]
+            city, _city_am, lat, lon = cities[idx]
             if city == "Addis Ababa":
                 try:
                     await callback.message.edit_text(
                         "📍 Select your area:" if lang == 'en' else "📍 ክፍለ ከተማዎን/አካባቢዎን ይምረጡ፦",
-                        reply_markup=subcities_keyboard(config.ADDIS_SUB_CITIES, lang)
+                        reply_markup=subcities_keyboard(
+                            [s[0] for s in await self._merged_subcities(db)], lang
+                        )
                     )
                 except Exception:
                     await callback.message.answer(
                         "📍 Select your area:" if lang == 'en' else "📍 ክፍለ ከተማዎን/አካባቢዎን ይምረጡ፦",
-                        reply_markup=subcities_keyboard(config.ADDIS_SUB_CITIES, lang)
+                        reply_markup=subcities_keyboard(
+                            [s[0] for s in await self._merged_subcities(db)], lang
+                        )
                     )
                 return
-            lat, lon = config.CITY_COORDS.get(city, (config.DEFAULT_LATITUDE, config.DEFAULT_LONGITUDE))
             await self.services.user.update_user_location(
-                callback.from_user.id, latitude=lat, longitude=lon, city=city
+                callback.from_user.id, latitude=lat, longitude=lon, city=city, sub_city=""
             )
             await state.clear()
             items, total = await self.services.item.search_items(
@@ -1452,12 +1738,10 @@ class AddisSukBot:
             except Exception:
                 pass
             idx = int(callback.data.split("_")[-1])
-            if idx < 0 or idx >= len(config.ADDIS_SUB_CITIES):
+            subs = await self._merged_subcities(db)
+            if idx < 0 or idx >= len(subs):
                 return
-            sub = config.ADDIS_SUB_CITIES[idx]
-            lat, lon = config.ADDIS_SUBCITY_COORDS.get(
-                sub, (config.DEFAULT_LATITUDE, config.DEFAULT_LONGITUDE)
-            )
+            sub, lat, lon = subs[idx]
             await self.services.user.update_user_location(
                 callback.from_user.id, latitude=lat, longitude=lon,
                 city="Addis Ababa", sub_city=sub
@@ -1484,6 +1768,45 @@ class AddisSukBot:
                 await callback.message.answer("Enter item name (e.g., tomato)")
             await state.set_state(Form.SEARCH_QUERY)
 
+        @self.router.callback_query(F.data.startswith("admin_"))
+        async def cb_admin_menu(callback: CallbackQuery, db: Database, lang: str):
+            try:
+                await callback.answer()
+            except Exception:
+                pass
+            if callback.from_user.id not in config.ADMIN_IDS:
+                return
+            if callback.data == "admin_dashboard":
+                text = await self._dashboard_text(db)
+            elif callback.data == "admin_users":
+                stats = await db.fetchone(
+                    "SELECT (SELECT COUNT(*) FROM users) as users, "
+                    "(SELECT COUNT(*) FROM sellers WHERE status='approved') as sellers, "
+                    "(SELECT COUNT(*) FROM items WHERE status='approved') as items"
+                )
+                text = (
+                    f"👥 *Platform Users*\n\n"
+                    f"Users: {stats['users']}\n"
+                    f"Approved Sellers: {stats['sellers']}\n"
+                    f"Approved Items: {stats['items']}"
+                )
+            elif callback.data == "admin_earnings":
+                text = await self._revenue_text(db)
+            elif callback.data == "admin_stats":
+                text = await self._weekly_stats_text(db)
+            elif callback.data == "admin_broadcast":
+                text = "📢 Use /broadcast to send a message to all users."
+            else:
+                text = "⚙️ Admin panel — use the buttons or admin commands."
+            try:
+                await callback.message.edit_text(
+                    text, reply_markup=admin_keyboard(), parse_mode="Markdown"
+                )
+            except Exception:
+                await callback.message.answer(
+                    text, reply_markup=admin_keyboard(), parse_mode="Markdown"
+                )
+
     def _register_errors(self):
         async def error_handler(event: ErrorEvent):
             exception = event.exception
@@ -1498,6 +1821,14 @@ class AddisSukBot:
                     await message.answer("❌ An error occurred. Please try again.")
             except Exception:
                 pass
+            for admin_id in config.ADMIN_IDS:
+                try:
+                    await self.bot.send_message(
+                        admin_id,
+                        f"⚠️ Bot error: {type(exception).__name__}: {str(exception)[:500]}"
+                    )
+                except Exception:
+                    pass
         self.dp.errors.register(error_handler)
 
     async def _perform_search(self, message: Message, query: str, db: Database, user: dict, lang: str):
@@ -1513,7 +1844,12 @@ class AddisSukBot:
     @staticmethod
     def _clean(text: str) -> str:
         """Strip Markdown-breaking characters from user-generated text."""
-        return str(text).replace("*", "").replace("_", "").replace("`", "").strip()
+        return (
+            str(text)
+            .replace("*", "").replace("_", "").replace("`", "")
+            .replace("[", "(").replace("]", ")")
+            .strip()
+        )
 
     @staticmethod
     def _format_table(headers: list, rows: list, max_width: int = 22) -> str:
@@ -1534,6 +1870,95 @@ class AddisSukBot:
         sep = "-+-".join("-" * w for w in widths)
         return "\n".join([fmt(headers), sep] + [fmt(r) for r in str_rows])
 
+    async def _dashboard_text(self, db: Database) -> str:
+        stats = await db.fetchone(
+            "SELECT (SELECT COUNT(*) FROM users) as total_users, "
+            "(SELECT COUNT(*) FROM sellers WHERE status='pending') as pending_sellers, "
+            "(SELECT COUNT(*) FROM items WHERE status='pending') as pending_items, "
+            "(SELECT COUNT(*) FROM users WHERE subscription_tier='premium') as premium_users"
+        )
+        return (
+            f"📊 *Admin Dashboard*\n\n"
+            f"Total Users: {stats['total_users']}\n"
+            f"Pending Sellers: {stats['pending_sellers']}\n"
+            f"Pending Items: {stats['pending_items']}\n"
+            f"Premium Users: {stats['premium_users']}"
+        )
+
+    async def _weekly_stats_text(self, db: Database) -> str:
+        rows = await db.fetchall(
+            "SELECT date(created_at) as day, COUNT(*) as cnt FROM search_logs "
+            "WHERE created_at >= date('now', '-7 days') GROUP BY date(created_at) ORDER BY day DESC"
+        )
+        parts = ["📈 *Weekly Search Stats*"]
+        for row in rows:
+            parts.append(f"• {row['day']}: {row['cnt']} searches")
+        if not rows:
+            parts.append("No data yet.")
+        return "\n".join(parts)
+
+    async def _revenue_text(self, db: Database) -> str:
+        rows = await db.fetchall(
+            "SELECT type, COUNT(*) as cnt, SUM(amount) as total FROM transactions "
+            "WHERE status='completed' GROUP BY type ORDER BY total DESC"
+        )
+        parts = ["💰 *Revenue Report*"]
+        total_rev = 0
+        for row in rows:
+            total = row['total'] or 0
+            total_rev += total
+            parts.append(f"• {row['type']}: {row['cnt']} txns, {total:.2f} Br")
+        parts.append(f"\n📊 *Total Revenue: {total_rev:.2f} Br*")
+        return "\n".join(parts)
+
+    async def _merged_cities(self, db: Database) -> list:
+        """All selectable cities: built-in + admin-added, as (name, name_am, lat, lon)."""
+        default = (config.DEFAULT_LATITUDE, config.DEFAULT_LONGITUDE)
+        cities = [
+            (name, config.CITIES[name], *config.CITY_COORDS.get(name, default))
+            for name in config.CITIES
+        ]
+        try:
+            rows = await db.fetchall(
+                "SELECT name, name_am, latitude, longitude FROM custom_locations "
+                "WHERE is_subcity = 0 ORDER BY id"
+            )
+        except Exception:
+            rows = []
+        existing = {c[0].lower() for c in cities}
+        for r in rows:
+            if r['name'].lower() not in existing:
+                cities.append((
+                    r['name'], r['name_am'] or r['name'],
+                    r['latitude'] if r['latitude'] is not None else default[0],
+                    r['longitude'] if r['longitude'] is not None else default[1],
+                ))
+        return cities
+
+    async def _merged_subcities(self, db: Database) -> list:
+        """All Addis Ababa sub-cities: built-in + admin-added, as (name, lat, lon)."""
+        default = (config.DEFAULT_LATITUDE, config.DEFAULT_LONGITUDE)
+        subs = [
+            (name, *config.ADDIS_SUBCITY_COORDS.get(name, default))
+            for name in config.ADDIS_SUB_CITIES
+        ]
+        try:
+            rows = await db.fetchall(
+                "SELECT name, latitude, longitude FROM custom_locations "
+                "WHERE is_subcity = 1 ORDER BY id"
+            )
+        except Exception:
+            rows = []
+        existing = {s[0].lower() for s in subs}
+        for r in rows:
+            if r['name'].lower() not in existing:
+                subs.append((
+                    r['name'],
+                    r['latitude'] if r['latitude'] is not None else default[0],
+                    r['longitude'] if r['longitude'] is not None else default[1],
+                ))
+        return subs
+
     async def _display_results(self, message: Message, items: list, total: int, lang: str, query: str):
         if not items:
             text = (
@@ -1551,25 +1976,33 @@ class AddisSukBot:
             dist = item.get('distance_km')
             if best is None or item['price'] < best['price']:
                 best = item
+            shop_label = self._clean(item['shop_name'])
+            if item.get('is_verified'):
+                shop_label = f"✅ {shop_label}"
             rows.append([
                 idx,
                 self._clean(name),
                 f"{item['price']:g}/{item['unit']}",
-                self._clean(item['shop_name']),
+                shop_label,
                 f"{dist:.1f}km" if dist else "-",
             ])
+
+        best_shop = (
+            f"✅ {self._clean(best['shop_name'])}"
+            if best.get('is_verified') else self._clean(best['shop_name'])
+        )
 
         if lang == 'en':
             header = f"🔍 *Results for \"{self._clean(query)}\"* ({total} found)"
             footer = (
                 f"\n💰 *Best price:* {best['price']:g} {best['unit']} "
-                f"at _{self._clean(best['shop_name'])}_"
+                f"at _{best_shop}_"
             )
         else:
             header = f"🔍 *የ \"{self._clean(query)}\" ፍለጋ ውጤቶች* ({total} ተገኝተዋል)"
             footer = (
                 f"\n💰 *ምርጥ ዋጋ:* {best['price']:g} {best['unit']} "
-                f"በ _{self._clean(best['shop_name'])}_"
+                f"በ _{best_shop}_"
             )
 
         table = self._format_table(["#", "Item", "Price", "Shop", "Dist"], rows)
