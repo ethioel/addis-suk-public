@@ -61,6 +61,40 @@ class TestSellerService:
         seller = await seller_service.get_seller_by_id(seller_id)
         assert seller['status'] == 'rejected'
 
+    async def test_verify_seller(self, seller_service):
+        """Test the verified badge."""
+        success, seller_id = await seller_service.register_seller(
+            user_id=1, shop_name="Verified Shop",
+            address="A", phone="0912345678", city="Adama"
+        )
+        assert await seller_service.verify_seller(seller_id)
+        seller = await seller_service.get_seller_by_id(seller_id)
+        assert seller['is_verified'] == 1
+
+    async def test_view_and_contact_counters(self, seller_service):
+        """Test shop view and contact-click counters."""
+        success, seller_id = await seller_service.register_seller(
+            user_id=1, shop_name="Counter Shop",
+            address="A", phone="0912345678", city="Adama"
+        )
+        await seller_service.increment_views(seller_id)
+        await seller_service.increment_views(seller_id)
+        await seller_service.increment_contact_clicks(seller_id)
+        seller = await seller_service.get_seller_by_id(seller_id)
+        assert seller['views'] == 2
+        assert seller['contact_clicks'] == 1
+
+    async def test_update_seller_location(self, seller_service):
+        """Test setting a shop's GPS pin."""
+        success, seller_id = await seller_service.register_seller(
+            user_id=1, shop_name="Located Shop",
+            address="A", phone="0912345678", city="Adama"
+        )
+        assert await seller_service.update_seller_location(seller_id, 8.5404, 39.2700)
+        seller = await seller_service.get_seller_by_id(seller_id)
+        assert abs(seller['latitude'] - 8.5404) < 1e-6
+        assert abs(seller['longitude'] - 39.2700) < 1e-6
+
 
 @pytest.fixture
 async def item_service():
@@ -175,3 +209,67 @@ class TestItemService:
         )
         history = await item_service.get_price_history(item_id, days=30)
         assert len(history) >= 1
+
+    async def test_get_seller_analytics(self, item_service):
+        """Test seller analytics aggregation."""
+        from src.services import SellerService
+        await item_service.add_item(
+            seller_id=1, category_id=1,
+            name_en="Tomato", name_am="ቲማቲም",
+            price=80.0, unit="kg"
+        )
+        await item_service.db.execute(
+            "UPDATE sellers SET views = 5, contact_clicks = 2, is_verified = 1 WHERE id = 1"
+        )
+        seller_service = SellerService(item_service.db)
+        stats = await seller_service.get_seller_analytics(1)
+        assert stats['views'] == 5
+        assert stats['contact_clicks'] == 2
+        assert stats['is_verified'] is True
+        assert stats['items_total'] == 1
+        assert stats['items_pending'] == 1
+        assert stats['items_approved'] == 0
+
+    async def test_update_item_price_by_seller_id(self, item_service):
+        """Regression: price updates must match on seller id, not user id."""
+        await item_service.db.execute(
+            "INSERT INTO users (telegram_id, first_name) VALUES (?, ?)",
+            (777, "Owner777")
+        )
+        uid = (await item_service.db.fetchone(
+            "SELECT id FROM users WHERE telegram_id = 777"
+        ))['id']
+        await item_service.db.execute(
+            "INSERT INTO sellers (user_id, shop_name, address, phone, city, status) "
+            "VALUES (?, 'Filler Shop', 'A', '09', 'Adama', 'pending')",
+            (uid,)
+        )
+        cursor = await item_service.db.execute(
+            "INSERT INTO sellers (user_id, shop_name, address, phone, city, status) "
+            "VALUES (?, 'Mismatch Shop', 'A', '09', 'Adama', 'approved')",
+            (uid,)
+        )
+        seller_id = cursor.lastrowid
+        assert seller_id != uid, "test requires seller_id != user_id"
+        _, item_id = await item_service.add_item(
+            seller_id=seller_id, category_id=1,
+            name_en="Banana", name_am="ሙዝ", price=30.0, unit="kg"
+        )
+        await item_service.db.execute("UPDATE items SET status = 'approved' WHERE id = ?", (item_id,))
+        ok, _ = await item_service.update_item_price(seller_id, "Banana", 45.0)
+        assert ok
+        row = await item_service.db.fetchone("SELECT price, status FROM items WHERE id = ?", (item_id,))
+        assert row['price'] == 45.0
+        assert row['status'] == 'pending'
+
+    async def test_update_item_price_sends_back_to_moderation(self, item_service):
+        """Price edits must re-enter the admin approval queue."""
+        _, item_id = await item_service.add_item(
+            seller_id=1, category_id=1,
+            name_en="Tomato", name_am="ቲማቲም", price=80.0, unit="kg"
+        )
+        await item_service.db.execute("UPDATE items SET status = 'approved' WHERE id = ?", (item_id,))
+        ok, _ = await item_service.update_item_price(1, "Tomato", 95.0)
+        assert ok
+        row = await item_service.db.fetchone("SELECT status FROM items WHERE id = ?", (item_id,))
+        assert row['status'] == 'pending'

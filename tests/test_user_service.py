@@ -60,3 +60,17 @@ class TestUserService:
         info = await user_service.get_user_subscription_info(999)
         assert info['is_premium'] == True
         assert info['tier'] == 'premium'
+
+    async def test_update_user_location_preserves_city(self, user_service):
+        """Regression: partial location updates must not wipe the city."""
+        await user_service.get_or_create_user(telegram_id=999, first_name="Test")
+        await user_service.update_user_location(
+            999, city="Adama", latitude=8.5, longitude=39.2
+        )
+        await user_service.update_user_location(999, latitude=9.0, longitude=38.7)
+        user = await user_service.db.fetchone(
+            "SELECT * FROM users WHERE telegram_id = ?", (999,)
+        )
+        assert user['city'] == "Adama"
+        assert user['latitude'] == 9.0
+        assert user['longitude'] == 38.7
