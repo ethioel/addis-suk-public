@@ -590,12 +590,19 @@ class AddisSukBot:
             if not items:
                 await message.answer("📭 No items listed yet.\nUse /add to add items." if lang == 'en' else "📭 እስካሁን የተመዘገቡ ምርቶች የሉም።\nምርቶችን ለመጨመር /add ይጠቀሙ።")
                 return
-            parts = ["📋 *My Listings*"]
+            rows = []
             for item in items:
                 name = item['name_am'] if lang == 'am' else item['name_en']
                 icon = "✅" if item['status'] == 'approved' else "⏳" if item['status'] == 'pending' else "❌"
-                parts.append(f"{icon} {name} - {item['price']} {item['unit']}")
-            await message.answer("\n".join(parts), parse_mode="Markdown")
+                rows.append([icon, str(name), f"{item['price']:g} {item['unit']}"])
+            html_text = "📋 <b>My Listings</b>\n" + self._html_table(
+                ["Status", "Item", "Price"], rows
+            )
+            table_md = self._format_table(
+                ["Status", "Item", "Price"], [[self._clean(c) for c in row] for row in rows]
+            )
+            md_text = f"📋 *My Listings*\n```\n{table_md}\n```"
+            await self._answer_rich(message, html_text, md_text)
 
         @self.router.message(Command("update"))
         async def cmd_update(message: Message, db: Database, user: dict, lang: str):
@@ -1062,43 +1069,27 @@ class AddisSukBot:
                 return
             cities = await self._merged_cities(db)
             subs = await self._merged_subcities(db)
-            html_parts = [
-                "📍 <b>Cities</b>",
-                "<table><tr><th>#</th><th>City</th><th>Amharic</th><th>Lat</th><th>Lon</th></tr>",
-            ]
-            for i, (name, name_am, lat, lon) in enumerate(cities, 1):
-                html_parts.append(
-                    f"<tr><td>{i}</td><td>{html.escape(str(name))}</td>"
-                    f"<td>{html.escape(str(name_am))}</td>"
-                    f"<td>{lat:.4f}</td><td>{lon:.4f}</td></tr>"
-                )
-            html_parts.append("</table>")
-            html_parts.append("🏙️ <b>Addis Ababa sub-cities</b>")
-            html_parts.append("<table><tr><th>#</th><th>Sub-city</th><th>Lat</th><th>Lon</th></tr>")
-            for i, (name, lat, lon) in enumerate(subs, 1):
-                html_parts.append(
-                    f"<tr><td>{i}</td><td>{html.escape(str(name))}</td>"
-                    f"<td>{lat:.4f}</td><td>{lon:.4f}</td></tr>"
-                )
-            html_parts.append("</table>")
-            try:
-                await message.answer("\n".join(html_parts), parse_mode="HTML")
-                return
-            except Exception:
-                pass
-            rows = [
-                [i, self._clean(n), self._clean(a), f"{la:.4f}", f"{lo:.4f}"]
+            city_rows = [
+                [i, n, a, f"{la:.4f}", f"{lo:.4f}"]
                 for i, (n, a, la, lo) in enumerate(cities, 1)
             ]
-            table = self._format_table(["#", "City", "Amharic", "Lat", "Lon"], rows)
             sub_rows = [
-                [i, self._clean(n), f"{la:.4f}", f"{lo:.4f}"]
+                [i, n, f"{la:.4f}", f"{lo:.4f}"]
                 for i, (n, la, lo) in enumerate(subs, 1)
             ]
-            sub_table = self._format_table(["#", "Sub-city", "Lat", "Lon"], sub_rows)
-            await message.answer(
-                f"📍 Cities\n```\n{table}\n```\n🏙️ Addis sub-cities\n```\n{sub_table}\n```"
+            html_text = (
+                "📍 <b>Cities</b>\n"
+                + self._html_table(["#", "City", "Amharic", "Lat", "Lon"], city_rows)
+                + "\n🏙️ <b>Addis Ababa sub-cities</b>\n"
+                + self._html_table(["#", "Sub-city", "Lat", "Lon"], sub_rows)
             )
+            table_md = self._format_table(["#", "City", "Amharic", "Lat", "Lon"], city_rows)
+            sub_table_md = self._format_table(["#", "Sub-city", "Lat", "Lon"], sub_rows)
+            md_text = (
+                f"📍 Cities\n```\n{table_md}\n```\n"
+                f"🏙️ Addis sub-cities\n```\n{sub_table_md}\n```"
+            )
+            await self._answer_rich(message, html_text, md_text)
 
     def _register_callbacks(self):
         @self.router.callback_query((F.data == "language") | F.data.startswith("lang_"))
@@ -1197,43 +1188,66 @@ class AddisSukBot:
                 name = item['name_am'] if lang == 'am' else item['name_en']
                 if best is None or item['price'] < best['price']:
                     best = item
+                shop_label = str(item['shop_name'])
+                if item['is_verified']:
+                    shop_label = f"✅ {shop_label}"
                 rows.append([
                     idx,
-                    self._clean(name),
+                    str(name),
                     f"{item['price']:g}/{item['unit']}",
-                    f"✅ {self._clean(item['shop_name'])}" if item['is_verified'] else self._clean(item['shop_name']),
-                    self._clean(item['city'] or "-"),
+                    shop_label,
+                    str(item['city'] or "-"),
                 ])
 
+            best_shop = (
+                f"✅ {best['shop_name']}"
+                if best['is_verified'] else str(best['shop_name'])
+            )
+            cat = str(cat_name)
+
             if lang == 'en':
-                header = f"📋 *{self._clean(cat_name)} — {len(items)} items*"
-                footer = (
-                    f"\n💰 *Best price:* {best['price']:g} {best['unit']} "
-                    f"at _{self._clean(best['shop_name'])}_"
+                header_html = f"📋 <b>{html.escape(cat)} — {len(items)} items</b>"
+                footer_html = (
+                    f"💰 <b>Best price:</b> {best['price']:g} {best['unit']} "
+                    f"at <i>{html.escape(best_shop)}</i>"
+                )
+                header_md = f"📋 *{self._clean(cat)} — {len(items)} items*"
+                footer_md = (
+                    f"💰 *Best price:* {best['price']:g} {best['unit']} "
+                    f"at _{self._clean(best_shop)}_"
                 )
             else:
-                header = f"📋 *{self._clean(cat_name)} — {len(items)} ምርቶች*"
-                footer = (
-                    f"\n💰 *ምርጥ ዋጋ:* {best['price']:g} {best['unit']} "
-                    f"በ _{self._clean(best['shop_name'])}_"
+                header_html = f"📋 <b>{html.escape(cat)} — {len(items)} ምርቶች</b>"
+                footer_html = (
+                    f"💰 <b>ምርጥ ዋጋ:</b> {best['price']:g} {best['unit']} "
+                    f"በ <i>{html.escape(best_shop)}</i>"
+                )
+                header_md = f"📋 *{self._clean(cat)} — {len(items)} ምርቶች*"
+                footer_md = (
+                    f"💰 *ምርጥ ዋጋ:* {best['price']:g} {best['unit']} "
+                    f"በ _{self._clean(best_shop)}_"
                 )
 
-            table = self._format_table(["#", "Item", "Price", "Shop", "City"], rows)
-            parts = [header, f"```\n{table}\n```", footer]
+            headers = ["#", "Item", "Price", "Shop", "City"]
+            html_text = "\n".join([
+                header_html,
+                self._html_table(headers, rows),
+                footer_html,
+            ])
+            table_md = self._format_table(
+                headers, [[self._clean(c) for c in row] for row in rows]
+            )
+            md_text = "\n".join([header_md, f"```\n{table_md}\n```", footer_md])
 
             keyboard = InlineKeyboardBuilder()
             for idx, item in enumerate(shown[:5], 1):
                 keyboard.button(text=f"⭐ {idx}", callback_data=f"fav_{item['id']}")
             keyboard.button(text="❌ Cancel", callback_data="cancel")
             keyboard.adjust(3, 2, 1)
-            try:
-                await callback.message.edit_text(
-                    "\n".join(parts), reply_markup=keyboard.as_markup(), parse_mode="Markdown"
-                )
-            except Exception:
-                await callback.message.answer(
-                    "\n".join(parts), reply_markup=keyboard.as_markup()
-                )
+            await self._answer_rich(
+                callback.message, html_text, md_text,
+                reply_markup=keyboard.as_markup(), edit=True
+            )
 
         @self.router.callback_query(F.data.startswith("fav_"))
         async def cb_favorite(callback: CallbackQuery, db: Database, user: dict, lang: str):
@@ -1420,47 +1434,68 @@ class AddisSukBot:
             items = await services.item.get_seller_items(seller_id)
             
             # Build the response
-            try:
-                if items:
-                    parts = [f"🏪 *{badge}{seller['shop_name']}*\n"]
-                    parts.append(f"📍 {seller['address']}, {seller['city']}\n")
-                    parts.append(f"📞 {seller['phone']}\n")
-                    parts.append(f"⭐ {len(items)} items available\n")
-                    parts.append("--- Items ---\n")
-                    for i, item in enumerate(items[:10], 1):
-                        name = item['name_am'] if lang == 'am' else item['name_en']
-                        price = item['price']
-                        unit = item['unit']
-                        distance = f"📍{item.get('distance_km', 'N/A')}km" if item.get('distance_km') else ""
-                        parts.append(f"{i}. {name}: {price} {unit} {distance}")
-                    
-                    # If more than 10 items, show a button to view all
-                    if len(items) > 10:
-                        keyboard = InlineKeyboardBuilder()
-                        keyboard.button(text="View All Items", callback_data=f"seller_all_{seller_id}")
-                        keyboard.button(text="📞 Contact", callback_data=f"contact_{seller_id}")
-                        keyboard.button(text="❌ Close", callback_data="cancel")
-                    else:
-                        keyboard = InlineKeyboardBuilder()
-                        keyboard.button(text="📞 Contact", callback_data=f"contact_{seller_id}")
-                        keyboard.button(text="❌ Close", callback_data="cancel")
+            if items:
+                item_rows = []
+                for i, item in enumerate(items[:10], 1):
+                    name = item['name_am'] if lang == 'am' else item['name_en']
+                    dist = item.get('distance_km')
+                    item_rows.append([
+                        i,
+                        str(name),
+                        f"{item['price']:g} {item['unit']}",
+                        f"{dist:.1f}km" if dist else "-",
+                    ])
+
+                info_html = (
+                    f"🏪 <b>{html.escape(badge + str(seller['shop_name']))}</b>\n"
+                    f"📍 {html.escape(str(seller['address']))}, {html.escape(str(seller['city']))} | "
+                    f"📞 {html.escape(str(seller['phone']))}\n"
+                    f"⭐ {len(items)} items available"
+                )
+                info_md = (
+                    f"🏪 *{badge}{self._clean(seller['shop_name'])}*\n"
+                    f"📍 {self._clean(seller['address'])}, {self._clean(seller['city'])} | "
+                    f"📞 {self._clean(seller['phone'])}\n"
+                    f"⭐ {len(items)} items available"
+                )
+                headers = ["#", "Item", "Price", "Dist"]
+                html_text = info_html + "\n" + self._html_table(headers, item_rows)
+                items_md = self._format_table(
+                    headers, [[self._clean(c) for c in row] for row in item_rows]
+                )
+                md_text = info_md + "\n```\n" + items_md + "\n```"
+
+                # If more than 10 items, show a button to view all
+                if len(items) > 10:
+                    keyboard = InlineKeyboardBuilder()
+                    keyboard.button(text="View All Items", callback_data=f"seller_all_{seller_id}")
+                    keyboard.button(text="📞 Contact", callback_data=f"contact_{seller_id}")
+                    keyboard.button(text="❌ Close", callback_data="cancel")
                 else:
-                    parts = [f"🏪 *{badge}{seller['shop_name']}*\n"]
-                    parts.append(f"📍 {seller['address']}, {seller['city']}\n")
-                    parts.append(f"📞 {seller['phone']}\n")
-                    parts.append("❌ No items available currently.")
                     keyboard = InlineKeyboardBuilder()
                     keyboard.button(text="📞 Contact", callback_data=f"contact_{seller_id}")
                     keyboard.button(text="❌ Close", callback_data="cancel")
-                
-                await callback.message.edit_text(
-                    "\n".join(parts), reply_markup=keyboard.as_markup(), parse_mode="Markdown"
+            else:
+                html_text = (
+                    f"🏪 <b>{html.escape(badge + str(seller['shop_name']))}</b>\n"
+                    f"📍 {html.escape(str(seller['address']))}, {html.escape(str(seller['city']))} | "
+                    f"📞 {html.escape(str(seller['phone']))}\n"
+                    "❌ No items available currently."
                 )
-            except Exception:
-                # If edit fails, send as new message
-                await callback.message.answer(
-                    "\n".join(parts), reply_markup=keyboard.as_markup(), parse_mode="Markdown"
+                md_text = (
+                    f"🏪 *{badge}{self._clean(seller['shop_name'])}*\n"
+                    f"📍 {self._clean(seller['address'])}, {self._clean(seller['city'])} | "
+                    f"📞 {self._clean(seller['phone'])}\n"
+                    "❌ No items available currently."
                 )
+                keyboard = InlineKeyboardBuilder()
+                keyboard.button(text="📞 Contact", callback_data=f"contact_{seller_id}")
+                keyboard.button(text="❌ Close", callback_data="cancel")
+
+            await self._answer_rich(
+                callback.message, html_text, md_text,
+                reply_markup=keyboard.as_markup(), edit=True
+            )
 
         @self.router.callback_query(F.data.startswith("seller_all_"))
         async def cb_seller_all_items(callback: CallbackQuery, db: Database, lang: str):
@@ -1480,32 +1515,46 @@ class AddisSukBot:
             
             if not items:
                 return
-            
-            try:
-                parts = [f"🏪 *{seller['shop_name']}* - All Items\n"]
-                parts.append(f"📍 {seller['address']}, {seller['city']}\n")
-                parts.append(f"📞 {seller['phone']}\n")
-                parts.append("--- Items ---\n")
-                for i, item in enumerate(items, 1):
-                    name = item['name_am'] if lang == 'am' else item['name_en']
-                    price = item['price']
-                    unit = item['unit']
-                    category = item['category_name_am'] if lang == 'am' else item['category_name_en']
-                    distance = f"📍{item.get('distance_km', 'N/A')}km" if item.get('distance_km') else ""
-                    parts.append(f"{i}. {name} ({category}): {price} {unit} {distance}")
-                
-                keyboard = InlineKeyboardBuilder()
-                keyboard.button(text="← Back to Shop", callback_data=f"seller_{seller_id}")
-                keyboard.button(text="❌ Close", callback_data="cancel")
-                
-                await callback.message.edit_text(
-                    "\n".join(parts), reply_markup=keyboard.as_markup(), parse_mode="Markdown"
-                )
-            except Exception:
-                # If edit fails, send as new message
-                await callback.message.answer(
-                    "\n".join(parts), reply_markup=keyboard.as_markup(), parse_mode="Markdown"
-                )
+
+            badge = "✅ " if seller['is_verified'] else ""
+            item_rows = []
+            for i, item in enumerate(items, 1):
+                name = item['name_am'] if lang == 'am' else item['name_en']
+                category = item['category_name_am'] if lang == 'am' else item['category_name_en']
+                dist = item.get('distance_km')
+                item_rows.append([
+                    i,
+                    str(name),
+                    str(category),
+                    f"{item['price']:g} {item['unit']}",
+                    f"{dist:.1f}km" if dist else "-",
+                ])
+
+            info_html = (
+                f"🏪 <b>{html.escape(badge + str(seller['shop_name']))} — All Items</b>\n"
+                f"📍 {html.escape(str(seller['address']))}, {html.escape(str(seller['city']))} | "
+                f"📞 {html.escape(str(seller['phone']))}"
+            )
+            info_md = (
+                f"🏪 *{badge}{self._clean(seller['shop_name'])}* - All Items\n"
+                f"📍 {self._clean(seller['address'])}, {self._clean(seller['city'])} | "
+                f"📞 {self._clean(seller['phone'])}"
+            )
+            headers = ["#", "Item", "Category", "Price", "Dist"]
+            html_text = info_html + "\n" + self._html_table(headers, item_rows)
+            items_md = self._format_table(
+                headers, [[self._clean(c) for c in row] for row in item_rows]
+            )
+            md_text = info_md + "\n```\n" + items_md + "\n```"
+
+            keyboard = InlineKeyboardBuilder()
+            keyboard.button(text="← Back to Shop", callback_data=f"seller_{seller_id}")
+            keyboard.button(text="❌ Close", callback_data="cancel")
+
+            await self._answer_rich(
+                callback.message, html_text, md_text,
+                reply_markup=keyboard.as_markup(), edit=True
+            )
 
         @self.router.callback_query(F.data.startswith("contact_"))
         async def cb_contact(callback: CallbackQuery, db: Database, lang: str):
@@ -1852,6 +1901,38 @@ class AddisSukBot:
         )
 
     @staticmethod
+    def _html_table(headers: list, rows: list) -> str:
+        """Telegram-native rich table (HTML formatting, Bot API 9.2+)."""
+        head = "".join(f"<th>{html.escape(str(h))}</th>" for h in headers)
+        body = "".join(
+            "<tr>" + "".join(f"<td>{html.escape(str(c))}</td>" for c in row) + "</tr>"
+            for row in rows
+        )
+        return f"<table><tr>{head}</tr>{body}</table>"
+
+    async def _answer_rich(self, message: Message, html_text: str, md_text: str,
+                           reply_markup=None, edit: bool = False) -> None:
+        """Send/edit a message using Telegram-native HTML tables.
+
+        Falls back to Markdown + monospace table when the connected Bot API
+        does not support native tables.
+        """
+        for text, parse_mode in ((html_text, "HTML"), (md_text, "Markdown")):
+            try:
+                if edit:
+                    await message.edit_text(text, reply_markup=reply_markup, parse_mode=parse_mode)
+                else:
+                    await message.answer(text, reply_markup=reply_markup, parse_mode=parse_mode)
+                return
+            except Exception:
+                continue
+        if not edit:
+            try:
+                await message.answer(md_text, reply_markup=reply_markup)
+            except Exception:
+                pass
+
+    @staticmethod
     def _format_table(headers: list, rows: list, max_width: int = 22) -> str:
         """Render an aligned monospace table for a Telegram code block."""
         str_rows = [[str(c) for c in row] for row in rows]
@@ -1976,37 +2057,56 @@ class AddisSukBot:
             dist = item.get('distance_km')
             if best is None or item['price'] < best['price']:
                 best = item
-            shop_label = self._clean(item['shop_name'])
+            shop_label = str(item['shop_name'])
             if item.get('is_verified'):
                 shop_label = f"✅ {shop_label}"
             rows.append([
                 idx,
-                self._clean(name),
+                str(name),
                 f"{item['price']:g}/{item['unit']}",
                 shop_label,
                 f"{dist:.1f}km" if dist else "-",
             ])
 
         best_shop = (
-            f"✅ {self._clean(best['shop_name'])}"
-            if best.get('is_verified') else self._clean(best['shop_name'])
+            f"✅ {best['shop_name']}"
+            if best.get('is_verified') else str(best['shop_name'])
         )
+        q = str(query)
 
         if lang == 'en':
-            header = f"🔍 *Results for \"{self._clean(query)}\"* ({total} found)"
-            footer = (
-                f"\n💰 *Best price:* {best['price']:g} {best['unit']} "
-                f"at _{best_shop}_"
+            header_html = f"🔍 <b>Results for \"{html.escape(q)}\"</b> ({total} found)"
+            footer_html = (
+                f"💰 <b>Best price:</b> {best['price']:g} {best['unit']} "
+                f"at <i>{html.escape(best_shop)}</i>"
+            )
+            header_md = f"🔍 *Results for \"{self._clean(q)}\"* ({total} found)"
+            footer_md = (
+                f"💰 *Best price:* {best['price']:g} {best['unit']} "
+                f"at _{self._clean(best_shop)}_"
             )
         else:
-            header = f"🔍 *የ \"{self._clean(query)}\" ፍለጋ ውጤቶች* ({total} ተገኝተዋል)"
-            footer = (
-                f"\n💰 *ምርጥ ዋጋ:* {best['price']:g} {best['unit']} "
-                f"በ _{best_shop}_"
+            header_html = f"🔍 <b>የ \"{html.escape(q)}\" ፍለጋ ውጤቶች</b> ({total} ተገኝተዋል)"
+            footer_html = (
+                f"💰 <b>ምርጥ ዋጋ:</b> {best['price']:g} {best['unit']} "
+                f"በ <i>{html.escape(best_shop)}</i>"
+            )
+            header_md = f"🔍 *የ \"{self._clean(q)}\" ፍለጋ ውጤቶች* ({total} ተገኝተዋል)"
+            footer_md = (
+                f"💰 *ምርጥ ዋጋ:* {best['price']:g} {best['unit']} "
+                f"በ _{self._clean(best_shop)}_"
             )
 
-        table = self._format_table(["#", "Item", "Price", "Shop", "Dist"], rows)
-        parts = [header, f"```\n{table}\n```", footer]
+        headers = ["#", "Item", "Price", "Shop", "Dist"]
+        html_text = "\n".join([
+            header_html,
+            self._html_table(headers, rows),
+            footer_html,
+        ])
+        table_md = self._format_table(
+            headers, [[self._clean(c) for c in row] for row in rows]
+        )
+        md_text = "\n".join([header_md, f"```\n{table_md}\n```", footer_md])
 
         keyboard = InlineKeyboardBuilder()
         keyboard.button(text="🔍 New Search", callback_data="search_again")
@@ -2014,7 +2114,7 @@ class AddisSukBot:
         keyboard.button(text="❌ Done", callback_data="cancel")
         keyboard.adjust(2, 1)
 
-        await message.answer("\n".join(parts), reply_markup=keyboard.as_markup(), parse_mode="Markdown")
+        await self._answer_rich(message, html_text, md_text, reply_markup=keyboard.as_markup())
 
     async def run(self):
         self.register_handlers()
