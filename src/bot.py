@@ -1230,106 +1230,6 @@ class AddisSukBot:
             )
             await self._send_category_view(callback.message, db, cat_id, cat_name, items, lang, 0)
 
-    async def _send_category_view(self, message_obj, db: Database, cat_id: int,
-                                  cat_name: str, items: list, lang: str,
-                                  offset: int = 0, edit: bool = False):
-        """Render a paginated category view with trends, favorites and reports."""
-        if not items:
-            msg = f"No items in {cat_name} yet." if lang == 'en' else f"በ{cat_name} ምድብ ውስጥ እስካሁን ምርቶች የሉም።"
-            try:
-                await message_obj.edit_text(msg, reply_markup=main_menu(lang))
-            except Exception:
-                await message_obj.answer(msg)
-            return
-
-        page_size = 10
-        offset = max(0, offset)
-        shown = items[offset:offset + page_size]
-        if not shown:
-            shown = items[:page_size]
-            offset = 0
-        trends = await self.services.item.get_price_trends([i['id'] for i in shown])
-
-        rows = []
-        best = None
-        for idx, item in enumerate(shown, 1):
-            name = item['name_am'] if lang == 'am' else item['name_en']
-            if best is None or item['price'] < best['price']:
-                best = item
-            shop_label = str(item['shop_name'])
-            if item['is_verified']:
-                shop_label = f"✅ {shop_label}"
-            trend = trends.get(item['id'])
-            trend_html = ""
-            if trend is not None:
-                trend_html = f" 📈 +{trend:g}%" if trend > 0 else f" 📉 {trend:g}%"
-            rows.append([
-                offset + idx,
-                str(name),
-                f"{item['price']:g}/{item['unit']}{trend_html}",
-                shop_label,
-                str(item['city'] or "-"),
-            ])
-
-        best_shop = (
-            f"✅ {best['shop_name']}"
-            if best['is_verified'] else str(best['shop_name'])
-        )
-        cat = str(cat_name)
-        page = offset // page_size + 1
-        pages = max(1, (len(items) + page_size - 1) // page_size)
-        page_label = f" · 📄 {page}/{pages}" if pages > 1 else ""
-
-        if lang == 'en':
-            header_html = f"📋 <b>{html.escape(cat)} — {len(items)} items</b>{page_label}"
-            footer_html = (
-                f"💰 <b>Best price:</b> {best['price']:g} {best['unit']} "
-                f"at <i>{html.escape(best_shop)}</i>"
-            )
-            header_md = f"📋 *{self._clean(cat)} — {len(items)} items*{page_label}"
-            footer_md = (
-                f"💰 *Best price:* {best['price']:g} {best['unit']} "
-                f"at _{self._clean(best_shop)}_"
-            )
-        else:
-            header_html = f"📋 <b>{html.escape(cat)} — {len(items)} ምርቶች</b>{page_label}"
-            footer_html = (
-                f"💰 <b>ምርጥ ዋጋ:</b> {best['price']:g} {best['unit']} "
-                f"በ <i>{html.escape(best_shop)}</i>"
-            )
-            header_md = f"📋 *{self._clean(cat)} — {len(items)} ምርቶች*{page_label}"
-            footer_md = (
-                f"💰 *ምርጥ ዋጋ:* {best['price']:g} {best['unit']} "
-                f"በ _{self._clean(best_shop)}_"
-            )
-
-        headers = ["#", "Item", "Price", "Shop", "City"]
-        html_text = "\n".join([
-            header_html,
-            self._html_table(headers, rows),
-            footer_html,
-        ])
-        table_md = self._format_table(
-            headers, [[self._clean(c) for c in row] for row in rows]
-        )
-        md_text = "\n".join([header_md, f"```\n{table_md}\n```", footer_md])
-
-        keyboard = InlineKeyboardBuilder()
-        for idx, item in enumerate(shown[:5], 1):
-            keyboard.button(text=f"⭐ {idx}", callback_data=f"fav_{item['id']}")
-        for idx, item in enumerate(shown[:5], 1):
-            keyboard.button(text=f"⚠️ {idx}", callback_data=f"report_{item['id']}")
-        if offset > 0:
-            keyboard.button(text="⬅️ Prev", callback_data=f"catpage_{cat_id}_{offset - page_size}")
-        if offset + page_size < len(items):
-            keyboard.button(text="Next ➡️", callback_data=f"catpage_{cat_id}_{offset + page_size}")
-        keyboard.button(text="❌ Cancel", callback_data="cancel")
-        keyboard.adjust(3, 2, 3, 2, 2, 1)
-        await self._answer_rich(
-            message_obj, html_text, md_text,
-            reply_markup=keyboard.as_markup(), edit=edit
-        )
-
         @self.router.callback_query(F.data.startswith("fav_"))
         async def cb_favorite(callback: CallbackQuery, db: Database, user: dict, lang: str):
             item_id = int(callback.data.split("_")[1])
@@ -2063,6 +1963,107 @@ class AddisSukBot:
                 await callback.message.answer(
                     text, reply_markup=admin_keyboard(), parse_mode="Markdown"
                 )
+
+
+    async def _send_category_view(self, message_obj, db: Database, cat_id: int,
+                                  cat_name: str, items: list, lang: str,
+                                  offset: int = 0, edit: bool = False):
+        """Render a paginated category view with trends, favorites and reports."""
+        if not items:
+            msg = f"No items in {cat_name} yet." if lang == 'en' else f"በ{cat_name} ምድብ ውስጥ እስካሁን ምርቶች የሉም።"
+            try:
+                await message_obj.edit_text(msg, reply_markup=main_menu(lang))
+            except Exception:
+                await message_obj.answer(msg)
+            return
+
+        page_size = 10
+        offset = max(0, offset)
+        shown = items[offset:offset + page_size]
+        if not shown:
+            shown = items[:page_size]
+            offset = 0
+        trends = await self.services.item.get_price_trends([i['id'] for i in shown])
+
+        rows = []
+        best = None
+        for idx, item in enumerate(shown, 1):
+            name = item['name_am'] if lang == 'am' else item['name_en']
+            if best is None or item['price'] < best['price']:
+                best = item
+            shop_label = str(item['shop_name'])
+            if item['is_verified']:
+                shop_label = f"✅ {shop_label}"
+            trend = trends.get(item['id'])
+            trend_html = ""
+            if trend is not None:
+                trend_html = f" 📈 +{trend:g}%" if trend > 0 else f" 📉 {trend:g}%"
+            rows.append([
+                offset + idx,
+                str(name),
+                f"{item['price']:g}/{item['unit']}{trend_html}",
+                shop_label,
+                str(item['city'] or "-"),
+            ])
+
+        best_shop = (
+            f"✅ {best['shop_name']}"
+            if best['is_verified'] else str(best['shop_name'])
+        )
+        cat = str(cat_name)
+        page = offset // page_size + 1
+        pages = max(1, (len(items) + page_size - 1) // page_size)
+        page_label = f" · 📄 {page}/{pages}" if pages > 1 else ""
+
+        if lang == 'en':
+            header_html = f"📋 <b>{html.escape(cat)} — {len(items)} items</b>{page_label}"
+            footer_html = (
+                f"💰 <b>Best price:</b> {best['price']:g} {best['unit']} "
+                f"at <i>{html.escape(best_shop)}</i>"
+            )
+            header_md = f"📋 *{self._clean(cat)} — {len(items)} items*{page_label}"
+            footer_md = (
+                f"💰 *Best price:* {best['price']:g} {best['unit']} "
+                f"at _{self._clean(best_shop)}_"
+            )
+        else:
+            header_html = f"📋 <b>{html.escape(cat)} — {len(items)} ምርቶች</b>{page_label}"
+            footer_html = (
+                f"💰 <b>ምርጥ ዋጋ:</b> {best['price']:g} {best['unit']} "
+                f"በ <i>{html.escape(best_shop)}</i>"
+            )
+            header_md = f"📋 *{self._clean(cat)} — {len(items)} ምርቶች*{page_label}"
+            footer_md = (
+                f"💰 *ምርጥ ዋጋ:* {best['price']:g} {best['unit']} "
+                f"በ _{self._clean(best_shop)}_"
+            )
+
+        headers = ["#", "Item", "Price", "Shop", "City"]
+        html_text = "\n".join([
+            header_html,
+            self._html_table(headers, rows),
+            footer_html,
+        ])
+        table_md = self._format_table(
+            headers, [[self._clean(c) for c in row] for row in rows]
+        )
+        md_text = "\n".join([header_md, f"```\n{table_md}\n```", footer_md])
+
+        keyboard = InlineKeyboardBuilder()
+        for idx, item in enumerate(shown[:5], 1):
+            keyboard.button(text=f"⭐ {idx}", callback_data=f"fav_{item['id']}")
+        for idx, item in enumerate(shown[:5], 1):
+            keyboard.button(text=f"⚠️ {idx}", callback_data=f"report_{item['id']}")
+        if offset > 0:
+            keyboard.button(text="⬅️ Prev", callback_data=f"catpage_{cat_id}_{offset - page_size}")
+        if offset + page_size < len(items):
+            keyboard.button(text="Next ➡️", callback_data=f"catpage_{cat_id}_{offset + page_size}")
+        keyboard.button(text="❌ Cancel", callback_data="cancel")
+        keyboard.adjust(3, 2, 3, 2, 2, 1)
+        await self._answer_rich(
+            message_obj, html_text, md_text,
+            reply_markup=keyboard.as_markup(), edit=edit
+        )
 
     def _register_errors(self):
         async def error_handler(event: ErrorEvent):
