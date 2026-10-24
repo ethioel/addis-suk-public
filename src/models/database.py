@@ -205,6 +205,15 @@ class Database:
             await db.execute("ALTER TABLE sellers ADD COLUMN views INTEGER DEFAULT 0")
         if "contact_clicks" not in cols:
             await db.execute("ALTER TABLE sellers ADD COLUMN contact_clicks INTEGER DEFAULT 0")
+        if "last_nudge_at" not in cols:
+            await db.execute("ALTER TABLE sellers ADD COLUMN last_nudge_at TIMESTAMP")
+
+        cursor = await db.execute("PRAGMA table_info(users)")
+        ucols = {row[1] for row in await cursor.fetchall()}
+        if "digest_enabled" not in ucols:
+            await db.execute("ALTER TABLE users ADD COLUMN digest_enabled INTEGER DEFAULT 1")
+        if "referrer_id" not in ucols:
+            await db.execute("ALTER TABLE users ADD COLUMN referrer_id INTEGER")
 
     @staticmethod
     async def _dedupe_categories(db):
@@ -464,6 +473,18 @@ CREATE TABLE IF NOT EXISTS custom_locations (
     is_subcity INTEGER DEFAULT 0,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
+
+-- Item price reports (community moderation)
+CREATE TABLE IF NOT EXISTS item_reports (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    item_id INTEGER NOT NULL REFERENCES items(id) ON DELETE CASCADE,
+    user_id INTEGER NOT NULL REFERENCES users(id),
+    status TEXT DEFAULT 'open',
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(item_id, user_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_item_reports_item_id ON item_reports(item_id);
 
 -- Payments table (alias for transactions, used by verify_payment handler)
 CREATE TABLE IF NOT EXISTS payments (

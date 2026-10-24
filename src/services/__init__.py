@@ -109,9 +109,24 @@ class UserService:
             'expires': user['subscription_expires']
         }
     
-    async def set_user_premium(self, telegram_id: int, months: int = 1) -> bool:
-        """Set user as premium for specified months."""
-        expires = datetime.utcnow() + timedelta(days=30 * months)
+    async def set_user_premium(
+        self, telegram_id: int, months: int = 1, days: int = 0
+    ) -> bool:
+        """Set/extend premium. Active subscriptions are extended, not reset."""
+        delta = timedelta(days=days if days > 0 else 30 * months)
+        user = await self.db.fetchone(
+            "SELECT subscription_expires FROM users WHERE telegram_id = ?",
+            (telegram_id,)
+        )
+        now = datetime.utcnow()
+        current = None
+        if user and user['subscription_expires']:
+            try:
+                current = datetime.fromisoformat(str(user['subscription_expires']))
+            except (ValueError, TypeError):
+                current = None
+        base = current if current and current > now else now
+        expires = (base + delta).isoformat()
         result = await self.db.execute(
             """
             UPDATE users 
@@ -120,7 +135,7 @@ class UserService:
                 updated_at = CURRENT_TIMESTAMP
             WHERE telegram_id = ?
             """,
-            (expires.isoformat(), telegram_id)
+            (expires, telegram_id)
         )
         return result.rowcount > 0
 
@@ -653,6 +668,42 @@ class ItemService:
         c = 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a))
         return R * c
     
+    async def get_price_trends(
+        self, item_ids: List[int], days: int = 30
+    ) -> Dict[int, float]:
+        """Percent change of the latest price vs the 30-day average, per item.
+
+        Positive value means the price went UP (bad for buyers)."""
+        if not item_ids:
+            return {}
+        placeholders = ",".join("?" * len(item_ids))
+        rows = await self.db.fetchall(
+            f"""
+            SELECT item_id, price, recorded_at FROM price_history
+            WHERE item_id IN ({placeholders}) 
+              AND recorded_at >= datetime('now', ?)
+            ORDER BY recorded_at ASC
+            """,
+            (*item_ids, f'-{days} days')
+        )
+        history: Dict[int, List[float]] = {}
+        for r in rows:
+            try:
+                history.setdefault(r['item_id'], []).append(float(r['price']))
+            except (TypeError, ValueError):
+                continue
+        trends: Dict[int, float] = {}
+        for item_id, prices in history.items():
+            if len(prices) < 2:
+                continue
+            avg = sum(prices) / len(prices)
+            if avg <= 0:
+                continue
+            change = (prices[-1] - avg) / avg * 100
+            if abs(change) >= 1:
+                trends[item_id] = round(change, 1)
+        return trends
+
     async def get_price_history(
         self,
         item_id: int,
