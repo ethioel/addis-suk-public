@@ -28,8 +28,9 @@ class Config:
     DATA_DIR: Path = field(default_factory=lambda: Path(__file__).parent.parent / "data")
     LOG_DIR: Path = field(default_factory=lambda: Path(__file__).parent.parent / "logs")
 
-    # Database
-    DB_PATH: str = ""
+    # Database — set DB_PATH (e.g. to a mounted volume like /data/addis_suk.db)
+    # so data survives Hugging Face Space redeploys.
+    DB_PATH: str = os.getenv("DB_PATH", "")
 
     # Logging
     LOG_LEVEL: str = os.getenv("LOG_LEVEL", "INFO")
@@ -65,7 +66,7 @@ class Config:
     SEARCH_RADIUS_KM: float = float(os.getenv("SEARCH_RADIUS_KM", "10"))
 
     def __post_init__(self):
-        self.DB_PATH = str(self.DATA_DIR / "addis_suk.db")
+        self.DB_PATH = self.DB_PATH or str(self.DATA_DIR / "addis_suk.db")
 
         self.DATA_DIR.mkdir(parents=True, exist_ok=True)
         self.LOG_DIR.mkdir(parents=True, exist_ok=True)
