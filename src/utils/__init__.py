@@ -41,8 +41,7 @@ def format_datetime(dt: datetime, lang: str = 'en') -> str:
     """Format datetime for display."""
     if lang == 'am':
         months_am = [
-            "ጃንዩወሪ", "ፌብሩወሪ", "ማርች", "ኤንውሪ", "ሜይ", "ጁን",
-            "ጁላይ", "ኦገስት", "ሴፖተምበር", "ኦክቶበር", "ኖቬምበር", "ዲሴምበር"
+            "መስከረም", "ጥቅምት", "ኅዳር", "ታኅሣሥ", "ጥር", "የካቲት", "መጋቢት", "ሚያዝያ", "ግንቦት", "ሰኔ", "ሐምሌ", "ነሐሴ", "ጳጉሜ"
         ]
         return f"{dt.day} {months_am[dt.month - 1]} {dt.year}"
     else:

@@ -30,6 +30,7 @@ def main_menu(lang: str = 'en') -> InlineKeyboardMarkup:
 def settings_menu(lang: str = 'en') -> InlineKeyboardMarkup:
     rows = [
         [('🌍 Language', 'settings_language'), ('⭐ Premium', 'settings_premium')],
+        [('📰 Weekly Digest', 'digest_toggle')],
         [('❌ Cancel', 'cancel')],
     ]
     return create_keyboard(rows)
@@ -78,7 +79,8 @@ def admin_keyboard() -> InlineKeyboardMarkup:
     rows = [
         [('📊 Dashboard', 'admin_dashboard'), ('👥 Users', 'admin_users')],
         [('💰 Revenue', 'admin_earnings'), ('📢 Broadcast', 'admin_broadcast')],
-        [('📈 Stats', 'admin_stats'), ('⚙️ Settings', 'admin_settings')],
+        [('📈 Stats', 'admin_stats'), ('⚠️ Reports', 'admin_reports')],
+        [('⚙️ Settings', 'admin_settings')],
     ]
     return create_keyboard(rows)
 
@@ -126,7 +128,7 @@ def pagination_keyboard(current_page: int, total_pages: int) -> InlineKeyboardMa
 def seller_listing_keyboard(item_id: int, lang: str = 'en') -> InlineKeyboardMarkup:
     builder = InlineKeyboardBuilder()
     delete_text = "🗑 Delete" if lang == 'en' else "🗑 ሰርዝ"
-    favorite_text = "⭐ Favorite" if lang == 'en' else "⭐ የተመረጡ"
+    favorite_text = "⭐ Favorite" if lang == 'en' else "⭐ ተወዳጅ"
     builder.button(text=delete_text, callback_data=f"delete_item_{item_id}")
     builder.button(text=favorite_text, callback_data=f"fav_{item_id}")
     builder.button(text="❌ Cancel", callback_data="cancel")
@@ -136,7 +138,7 @@ def seller_listing_keyboard(item_id: int, lang: str = 'en') -> InlineKeyboardMar
 def location_menu(lang: str = 'en') -> ReplyKeyboardMarkup:
     share_text = "📍 Share Location" if lang == 'en' else "📍 መገኛዎን ይላኩ"
     manual_text = "🏙️ Choose City" if lang == 'en' else "🏙️ ከተማ ይምረጡ"
-    cancel_text = "❌ Cancel" if lang == 'en' else "❌ ይቅርታ"
+    cancel_text = "❌ Cancel" if lang == 'en' else "❌ ሰርዝ"
     keyboard = ReplyKeyboardMarkup(
         keyboard=[
             [KeyboardButton(text=share_text, request_location=True)],
@@ -152,7 +154,7 @@ def location_menu(lang: str = 'en') -> ReplyKeyboardMarkup:
 LOCATION_MANUAL_TEXT = "🏙️ Choose City"
 LOCATION_MANUAL_TEXT_AM = "🏙️ ከተማ ይምረጡ"
 LOCATION_CANCEL_TEXT = "❌ Cancel"
-LOCATION_CANCEL_TEXT_AM = "❌ ይቅርታ"
+LOCATION_CANCEL_TEXT_AM = "❌ ሰርዝ"
 
 
 def cities_keyboard(city_names: List[str], city_names_am: List[str],
