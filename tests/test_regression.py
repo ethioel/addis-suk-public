@@ -1,4 +1,4 @@
-﻿"""Regression tests for search-by-input crash, favorites feedback and custom locations."""
+"""Regression tests for search-by-input crash, favorites feedback and custom locations."""
 import os
 import pytest
 from datetime import datetime
@@ -53,7 +53,7 @@ async def test_add_favorite_returns_false_on_duplicate(db):
     )
     await db.execute(
         "INSERT INTO items (seller_id, category_id, name_en, name_am, price, unit, status) "
-        "VALUES (1, 1, 'Onion', 'áˆ½áŠ•áŠ©áˆ­á‰µ', 7.5, 'kg', 'approved')"
+        "VALUES (1, 1, 'Onion', 'ሽንኩርት', 7.5, 'kg', 'approved')"
     )
     item = await db.fetchone("SELECT id FROM items LIMIT 1")
     user = await db.fetchone("SELECT id FROM users LIMIT 1")
@@ -68,11 +68,11 @@ async def test_custom_locations_table_and_merge(db):
 
     await db.execute(
         "INSERT INTO custom_locations (name, name_am, latitude, longitude, is_subcity) "
-        "VALUES ('Debre Markos', 'á‹°á‰¥áˆ¨ áˆ›áˆ­á‰†áˆµ', 10.35, 37.72, 0)"
+        "VALUES ('Debre Markos', 'ደብረ ማርቆስ', 10.35, 37.72, 0)"
     )
     await db.execute(
         "INSERT INTO custom_locations (name, name_am, latitude, longitude, is_subcity) "
-        "VALUES ('Gerji Mebrat', 'áŒˆáˆ­áŒ‚', 9.01, 38.83, 1)"
+        "VALUES ('Gerji Mebrat', 'ገርጂ', 9.01, 38.83, 1)"
     )
     bot = AddisSukBot.__new__(AddisSukBot)
     cities = await bot._merged_cities(db)
@@ -82,7 +82,7 @@ async def test_custom_locations_table_and_merge(db):
     assert "Addis Ababa" in names
     assert "Debre Markos" in names
     custom = cities[names.index("Debre Markos")]
-    assert custom[1] == "á‹°á‰¥áˆ¨ áˆ›áˆ­á‰†áˆµ"
+    assert custom[1] == "ደብረ ማርቆስ"
     assert abs(custom[2] - 10.35) < 1e-6
 
     sub_names = [s[0] for s in subs]
