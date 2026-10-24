@@ -1,4 +1,4 @@
-import asyncio
+﻿import asyncio
 import html
 import logging
 import sys
@@ -6,7 +6,6 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from aiogram import Bot, Dispatcher, F, Router
 from aiogram.client.default import DefaultBotProperties
-from aiogram.exceptions import SkipHandler
 from aiogram.filters import Command, CommandStart
 from aiogram.types import (
     Message, CallbackQuery, ErrorEvent,
@@ -194,8 +193,18 @@ class AddisSukBot:
                 # If a language is already known, the stuck selection state must
                 # not swallow normal messages (e.g. the "Choose City" button)
                 if user and user.get('language') in ('en', 'am'):
+                    # A language is already known — the stuck selection state
+                    # must not swallow normal messages (e.g. "Choose City").
                     await state.clear()
-                    raise SkipHandler
+                    text_raw = message.text or ""
+                    if text_raw in (LOCATION_MANUAL_TEXT, LOCATION_MANUAL_TEXT_AM):
+                        await self._send_city_picker(message, db, user.get('language'))
+                    elif text_raw in (LOCATION_CANCEL_TEXT, LOCATION_CANCEL_TEXT_AM):
+                        await message.answer(
+                            "✅ Cancelled." if user.get('language') == 'en' else "✅ ተሰርዟል።",
+                            reply_markup=main_menu(user.get('language'))
+                        )
+                    return
                 await message.answer(
                     "🌍 Please select your language / እባክዎ ቋንቋ ይምረጡ"
                     if lang == 'en' else "🌍 እባክዎ ቋንቋ ይምረጡ",
@@ -206,7 +215,7 @@ class AddisSukBot:
                 await self.services.user.update_user_language(user['telegram_id'], language)
             await state.clear()
             await message.answer(
-                "✅ Language set!" if lang == 'en' else "✅ ቋንቋ ተወን ሆነ!",
+                "✅ Language set!" if lang == 'en' else "✅ ቋንቋ ተመርጧል!",
                 reply_markup=main_menu(language)
             )
 
@@ -228,7 +237,7 @@ class AddisSukBot:
             await state.update_data(payment_id=pending['id'])
             await message.answer(
                 "📸 Send the payment receipt screenshot (photo) to verify."
-                if lang == 'en' else "📸 የ_ovverify ማወቂያ ስወል ይላኩ"
+                if lang == 'en' else "📸 የክፍያ ማረጋገጫ ፎቶ ይላኩ።"
             )
 
         @self.router.message(Form.VERIFY_PAYMENT, lambda m: m.content_type == "PHOTO")
@@ -248,7 +257,7 @@ class AddisSukBot:
             await state.clear()
             await message.answer(
                 "✅ Payment verified! Thank you for your support."
-                if lang == 'en' else "✅ ክፍያ ተወን ሆነ! ስለ ድilent ..."
+                if lang == 'en' else "✅ ክፍያዎ ተረጋግጧል! እናመሰግናለን።"
             )
 
         @self.router.message(Command("help"))
@@ -259,6 +268,7 @@ class AddisSukBot:
                     "🔍 /search [item] - Search for prices (e.g., /search tomato)\n"
                     "📋 /categories - Browse product categories\n"
                     "📍 /nearby [item] - Find sellers near your location\n"
+                    "🧺 /basket [items] - Compare a shopping basket across shops\n"
                     "⚙️ /settings - Adjust your preferences\n"
                     "📢 /about - Information about Addis Suk\n\n"
                     "_Premium Features:\n"
@@ -280,6 +290,7 @@ class AddisSukBot:
                     "🔍 /search [ምርት] - ዋጋ ለመፈለግ (ለምሳሌ /search tomato)\n"
                     "📋 /categories - የምርት ምድቦችን ለመመልከት\n"
                     "📍 /nearby [ምርት] - በአቅራቢያዎ ያሉ ሱቆችን ለመፈለግ\n"
+                    "🧺 /basket [ምርቶች] - የቅርጫት ዋጋ ለማወዳደር\n"
                     "⚙️ /settings - ምርጫዎችዎን ለማስተካከል\n"
                     "📢 /about - ስለ አዲስ ሱቅ መረጃ\n\n"
                     "⭐ *ልዩ አገልግሎቶች (ፕሪሚየም):*\n"
@@ -352,7 +363,7 @@ class AddisSukBot:
                 await message.answer(
                     "⚠️ You've reached your daily free limit (5 searches).\n"
                     "Upgrade to Premium for unlimited searches!\n/subscribe"
-                    if lang == 'en' else "⚠️ የዕለት ነፃ ፍለጋ ገደብዎን (5 ፍለጋዎች) ጨርሰዋል።\nላልተገደበ ፍለጋ ወደ ፕሪሚየም ያሻሽሉ!\n/subscribe",
+                    if lang == 'en' else "⚠️ የዕለት ነፃ ፍለጋ ገደብዎን (5 ፍለጋዎች) ጨርሰዋል።\nላልተገደብ ፍለጋ ፕሪሚየም ይግዙ!\n/subscribe",
                     reply_markup=subscription_keyboard()
                 )
                 return
@@ -419,7 +430,7 @@ class AddisSukBot:
                 await message.answer(f"✅ You're already registered!\nShop: {existing['shop_name']}")
                 return
             await state.set_state(Form.SELLER_NAME)
-            await message.answer("📝 Enter shop name:" if lang == 'en' else "📝 የሱቁን ስም ያስገቡ፦")
+            await message.answer("📝 Enter shop name:" if lang == 'en' else "📝 የሱቅዎን ስም ያስገቡ፦")
 
         @self.router.message(Form.SELLER_NAME)
         async def seller_name_handler(message: Message, state: FSMContext, lang: str):
@@ -432,7 +443,7 @@ class AddisSukBot:
             await state.update_data(address=message.text)
             await state.set_state(Form.SELLER_PHONE)
             await message.answer("📱 Enter phone number (e.g., 0912345678):"
-                if lang == 'en' else "📱 ስልክ ቁጥር ያስገቡ (ለምሳሌ፦ 0912345678)፦")
+                if lang == 'en' else "📱 ስልክ ቁጥር ያስገቡ (ለምሳሌ፦ 0912345678)።")
 
         @self.router.message(Form.SELLER_PHONE)
         async def seller_phone_handler(message: Message, state: FSMContext, lang: str):
@@ -450,7 +461,7 @@ class AddisSukBot:
             )
             await message.answer(
                 "✅ Shop registered! Pending approval.\nYour shop ID: " + str(seller_id)
-                if lang == 'en' else f"✅ ሱቁ ተመዝግቧል! ማረጋገጫ በመጠበቅ ላይ።\nየሱቅዎ መለያ ቁጥር (ID): {seller_id}",
+                if lang == 'en' else f"✅ ሱቅዎ ተመዝግቧል! ለማጽደቅ በመጠበቅ ላይ።\nየሱቅዎ መለያ ቁጥር (ID): {seller_id}",
                 reply_markup=main_menu(lang)
             )
 
@@ -472,7 +483,7 @@ class AddisSukBot:
                 )
                 await message.answer(
                     "📍 Shop location saved! Buyers nearby can now find you."
-                    if lang == 'en' else "📍 የሱቅዎ አካባቢ ተቀምጧል! በአቅራቢያ ያሉ ገዦች ሱቅዎን ያገኙዎታል።",
+                    if lang == 'en' else "📍 የሱቅዎ አካባቢ ተቀምጧል! በአቅራቢያ ያሉ ገዦች ሱቅዎን ያገኛሉ።",
                     reply_markup=main_menu(lang)
                 )
                 return
@@ -493,19 +504,13 @@ class AddisSukBot:
         @self.router.message(lambda m: m.text in (LOCATION_MANUAL_TEXT, LOCATION_MANUAL_TEXT_AM))
         async def handle_manual_location(message: Message, state: FSMContext, db: Database, lang: str):
             await state.clear()
-            cities = await self._merged_cities(db)
-            city_names = [c[0] for c in cities]
-            city_names_am = [c[1] for c in cities]
-            await message.answer(
-                "🏙️ Select your city:" if lang == 'en' else "🏙️ ከተማዎን ይምረጡ፦",
-                reply_markup=cities_keyboard(city_names, city_names_am, lang)
-            )
+            await self._send_city_picker(message, db, lang)
 
         @self.router.message(lambda m: m.text in (LOCATION_CANCEL_TEXT, LOCATION_CANCEL_TEXT_AM))
         async def handle_location_cancel_text(message: Message, state: FSMContext, lang: str):
             await state.clear()
             await message.answer(
-                "Cancelled. Main menu:" if lang == 'en' else "ተሰርዟል። ዋና ምናሌ፦",
+                "Cancelled. Main menu:" if lang == 'en' else "ተሰርዟል። ዋና መምረጫ፦",
                 reply_markup=main_menu(lang)
             )
 
@@ -534,7 +539,7 @@ class AddisSukBot:
             )
             await message.answer(
                 f"✅ Item added! ID: {item_id} - awaiting approval."
-                if lang == 'en' else f"✅ ምርቱ ተጨምሯል! መለያ ቁጥር (ID): {item_id} - ማጽደቅን በመጠበቅ ላይ።"
+                if lang == 'en' else f"✅ ምርቱ ተጨምሯል! መለያ ቁጥር (ID): {item_id} - ለማጽደቅ በመጠበቅ ላይ።"
             )
 
         @self.router.message(Command("additem"))
@@ -545,7 +550,7 @@ class AddisSukBot:
                     if lang == 'en' else "❌ ምርቶችን ለማስገባት የተፈቀደለት ሻጭ መሆን አለብዎት።")
                 return
             await state.set_state(Form.ITEM_NAME)
-            await message.answer("📝 Enter item name:" if lang == 'en' else "📝 የሚጨመቅበትን ምርት ያስገቡ፦")
+            await message.answer("📝 Enter item name:" if lang == 'en' else "📝 የሚጨምሩትን ምርት ስም ያስገቡ፦")
 
         @self.router.message(Form.ITEM_NAME)
         async def seller_item_name_handler(message: Message, state: FSMContext, db: Database, user: dict, lang: str):
@@ -559,9 +564,9 @@ class AddisSukBot:
                 price = float(message.text)
                 await state.update_data(price=price)
                 await state.set_state(Form.ITEM_UNIT)
-                await message.answer("📦 Enter unit (e.g., kg, piece):" if lang == 'en' else "📦 መለኪያ ያስገቡ (ለምሳሌ፦ ኪሎ፣ አካል):")
+                await message.answer("📦 Enter unit (e.g., kg, piece):" if lang == 'en' else "📦 መለኪያ ያስገቡ (ለምሳሌ፦ ኪሎ፣ ሊትር፣ ቁማር)፦")
             except ValueError:
-                await message.answer("❌ Invalid price format. Example: 80" if lang == 'en' else "❌ ትክክል ያልሆነ የዋጋ ግብአት። ለምሳሌ፦ 80")
+                await message.answer("❌ Invalid price format. Example: 80" if lang == 'en' else "❌ ትክክል ያልሆነ የዋጋ ግቤት። ለምሳሌ፦ 80")
 
         @self.router.message(Form.ITEM_UNIT)
         async def seller_item_unit_handler(message: Message, state: FSMContext, db: Database, user: dict, lang: str):
@@ -579,7 +584,7 @@ class AddisSukBot:
             await state.clear()
             await message.answer(
                 f"✅ Item added! ID: {item_id} - awaiting approval."
-                if lang == 'en' else f"✅ ምርቱ ተጨምሯል! መለያ ቁጥር (ID): {item_id} - ማጽደቅን በመጠበቅ ላይ።"
+                if lang == 'en' else f"✅ ምርቱ ተጨምሯል! መለያ ቁጥር (ID): {item_id} - ለማጽደቅ በመጠበቅ ላይ።"
             )
 
         @self.router.message(Command("mylistings"))
@@ -626,7 +631,7 @@ class AddisSukBot:
             if lang == 'en':
                 msg = f"✅ Price updated to {new_price} — awaiting admin approval." if success else "❌ Item not found."
             else:
-                msg = f"✅ ዋጋው ወደ {new_price} ተዘምኗል — ማጽደቅን በመጠበቅ ላይ።" if success else "❌ ምርቱ አልተገኘም።"
+                msg = f"✅ ዋጋው ወደ {new_price} ተዘምኗል — ለማጽደቅ በመጠበቅ ላይ።" if success else "❌ ምርቱ አልተገኘም።"
             await message.answer(msg)
 
         @self.router.message(Command("delete"))
@@ -666,11 +671,11 @@ class AddisSukBot:
                     "🌟 *ፕሪሚየም አባልነት*\n\n"
                     "*የገዢ ፕሪሚየም - 100 ብር/ወር:*\n"
                     "  ✅ ያልተገደበ ፍለጋ\n  ✅ የዋጋ ማሳወቂያዎች (10 ምርቶች)\n"
-                    "  ✅ ተወዳጅ\n  ✅ የዋጋ ታሪክ (30 ቀናት)\n"
-                    "  ✅ ከማስታወቂያ ነፃ\n  ✅ ቅድሚያ የሚሰጠው ድጋፍ\n\n"
+                    "  ✅ ተወዳጆች\n  ✅ የዋጋ ታሪክ (30 ቀናት)\n"
+                        "  ✅ ያለ ማስታወቂያ\n  ✅ ቅድሚያ የሚሰጠው ድጋፍ\n\n"
                     "*የሻጭ ፕሪሚየም - 250 ብር/ወር:*\n"
-                    "  ✅ ያልተገደቡ ምርቶች\n  ✅ ተመራጭ ዝርዝሮች\n  ✅ ሙሉ ትንታኔዎች\n  ✅ የተረጋገጠ ባጅ\n  ✅ የጅምላ ቅናሾች\n  ✅ የማስተዋወቂያ ስርጭቶች\n\n"
-                    "ከዚህ በታች ያሉትን እቅን ይምረጡ:"
+                    "  ✅ ያልተገደቡ ምርቶች\n  ✅ ተመራጭ ማስታወቂያዎች\n  ✅ ሙሉ ትንታኔ\n  ✅ የተረጋገጠ ባጅ\n  ✅ የጅምላ ቅናሾች\n  ✅ የማስተዋወቂያ ስርጭቶች\n\n"
+                    "ከዚህ በታች ያለውን እቅድ ይምረጡ:"
                 )
             }
             keyboard = subscription_keyboard()
@@ -686,7 +691,7 @@ class AddisSukBot:
             if not favorites:
                 await message.answer("📭 Your favorites list is empty." if lang == 'en' else "📭 የተወዳጆች ዝርዝርዎ ባዶ ነው።")
                 return
-            parts = ["⭐ *My Favorites*"] if lang == 'en' else ["⭐ *የእኛ ተወዳጆች*"]
+            parts = ["⭐ *My Favorites*"] if lang == 'en' else ["⭐ *የእኔ ተወዳጆች*"]
             for f in favorites:
                 name = f['name_am'] if lang == 'am' else f['name_en']
                 parts.append(f"• {name} - {f['price']} {f['unit']} ({f['shop_name']})")
@@ -704,7 +709,7 @@ class AddisSukBot:
                 return
             parts = ["🔔 *My Price Alerts*"] if lang == 'en' else ["🔔 *የዋጋ ማሳወቂያዎቼ*"]
             for a in alerts:
-                parts.append(f"• {a['item_name']} at or below {a['target_price']} Br" if lang == 'en' else f"• {a['item_name']} ከ {a['target_price']} ብር ወይም በታች ሲሆን")
+                parts.append(f"• {a['item_name']} at or below {a['target_price']} Br" if lang == 'en' else f"• {a['item_name']} — ዋጋው ከ{a['target_price']} ብር ወይም ከዚያ በታች ሲደርስ")
             await message.answer("\n".join(parts), parse_mode="Markdown")
 
         @self.router.message(Command("alert"))
@@ -718,10 +723,10 @@ class AddisSukBot:
                 try:
                     target = float(args[1])
                     success, alert_id = await self.services.alert.create_alert(user['id'], args[0], target)
-                    await message.answer(f"🔔 Alert created! You'll be notified when {args[0]} is at or below {target} Br." if lang == 'en' else f"🔔 ማሳወቂያ ተፈጥሯል! {args[0]} ከ {target} ብር ወይም በታች ሲሆን ማሳወቂያ ይደርስዎታል።")
+                    await message.answer(f"🔔 Alert created! You'll be notified when {args[0]} is at or below {target} Br." if lang == 'en' else f"🔔 ማሳወቂያ ተፈጥሯል! {args[0]} — ዋጋው ከ{target} ብር ወይም ከዚያ በታች ሲደርስ ማሳወቂያ ይደርስዎታል።")
                     return
                 except ValueError:
-                    await message.answer("❌ Invalid price format." if lang == 'en' else "❌ ትክክል ያልሆነ የዋጋ ግብአት።")
+                    await message.answer("❌ Invalid price format." if lang == 'en' else "❌ ትክክል ያልሆነ የዋጋ ግቤት።")
                     return
             # Interactive mode
             await state.set_state(Form.ALERT_PRICE)
@@ -733,22 +738,22 @@ class AddisSukBot:
             data = await state.get_data()
             if not data.get('item_name'):
                 await state.update_data(item_name=message.text)
-                await message.answer("💰 Enter target price (Br):" if lang == 'en' else "💰 የተመርጠውን ዋጋ ያስገቡ (ብር):")
+                await message.answer("💰 Enter target price (Br):" if lang == 'en' else "💰 ዒላማ ዋጋ ያስገቡ (ብር)፦")
                 return
             try:
                 target = float(message.text)
                 item_name = data['item_name']
                 success, alert_id = await self.services.alert.create_alert(user['id'], item_name, target)
                 await state.clear()
-                await message.answer(f"🔔 Alert created! You'll be notified when {item_name} is at or below {target} Br." if lang == 'en' else f"🔔 ማሳወቂያ ተፈጥሯል! {item_name} ከ {target} ብር ወይም በታች ሲሆን ማሳወቂያ ይደርስዎታል።")
+                await message.answer(f"🔔 Alert created! You'll be notified when {item_name} is at or below {target} Br." if lang == 'en' else f"🔔 ማሳወቂያ ተፈጥሯል! {item_name} — ዋጋው ከ{target} ብር ወይም ከዚያ በታች ሲደርስ ማሳወቂያ ይደርስዎታል።")
             except ValueError:
-                await message.answer("❌ Invalid price format. Example: 50" if lang == 'en' else "❌ ትክክል ያልሆነ የዋጋ ግብአት። ለምሳሌ፦ 50")
+                await message.answer("❌ Invalid price format. Example: 50" if lang == 'en' else "❌ ትክክል ያልሆነ የዋጋ ግቤት። ለምሳሌ፦ 50")
 
         @self.router.message(Command("history"))
         async def cmd_history(message: Message, db: Database, user: dict, lang: str):
             user_info = await self.services.user.get_user_subscription_info(message.from_user.id)
             if not user_info.get('is_premium', False):
-                await message.answer("⭐ Premium feature. Use /subscribe to upgrade." if lang == 'en' else "⭐ የፕሪሚየም አገልግሎትን ለማሻሻል /subscribe ይጠቀሙ።")
+                await message.answer("⭐ Premium feature. Use /subscribe to upgrade." if lang == 'en' else "⭐ የፕሪሚየም አገልግሎት። ለማሻሻል /subscribe ይጠቀሙ።")
                 return
             query = get_args(message)
             if not query:
@@ -839,7 +844,7 @@ class AddisSukBot:
                 "INSERT INTO broadcasts (admin_id, message, sent_count) VALUES (?, ?, ?)",
                 (message.from_user.id, text, sent)
             )
-            await message.answer(f"✅ Broadcast sent to {sent} users." if lang == 'en' else f"✅ መልእክቱ ለ {sent} ተጠቃሊዎች ተልኳል።")
+            await message.answer(f"✅ Broadcast sent to {sent} users." if lang == 'en' else f"✅ መልእክቱ ለ{sent} ተጠቃሚዎች ተልኳል።")
             await state.clear()
 
         @self.router.message(Command("stats"))
@@ -935,7 +940,7 @@ class AddisSukBot:
             )
             await message.answer(
                 f"✅ Promo sent to {sent} buyers in {city or 'all cities'}."
-                if lang == 'en' else f"✅ ማስተዋወቂያው ለ {sent} ገዦች ተልኳል ({city or 'ሁሉም ከተሞች'})።"
+                if lang == 'en' else f"✅ ማስተዋወቂያው ለ{sent} ገዢዎች ተልኳል ({city or 'ሁሉም ከተሞች'})።"
             )
 
         @self.router.message(Command("approve_premium"))
@@ -986,6 +991,50 @@ class AddisSukBot:
                 "✅ Seller verified! Buyers will see the ✅ badge."
                 if success else "❌ Seller not found."
             )
+
+        @self.router.message(Command("reports"))
+        async def cmd_reports(message: Message, db: Database, lang: str):
+            if message.from_user.id not in config.ADMIN_IDS:
+                await message.answer("❌ Access denied." if lang == 'en' else "❌ ፍቃድ አልተሰጠዎትም።")
+                return
+            rows = await db.fetchall(
+                """
+                SELECT r.id, i.name_en, i.price, s.shop_name
+                FROM item_reports r
+                JOIN items i ON r.item_id = i.id
+                JOIN sellers s ON i.seller_id = s.id
+                WHERE r.status = 'open'
+                ORDER BY r.created_at DESC LIMIT 20
+                """
+            )
+            if not rows:
+                await message.answer("✅ No open reports.")
+                return
+            table_rows = [
+                [r['id'], r['name_en'], f"{r['price']:g} Br", r['shop_name']]
+                for r in rows
+            ]
+            html_text = "⚠️ <b>Open price reports</b>\n" + self._html_table(
+                ["ID", "Item", "Price", "Shop"], table_rows
+            )
+            table_md = self._format_table(
+                ["ID", "Item", "Price", "Shop"],
+                [[self._clean(c) for c in row] for row in table_rows]
+            )
+            md_text = f"⚠️ *Open price reports*\n```\n{table_md}\n```"
+            await self._answer_rich(message, html_text, md_text)
+
+        @self.router.message(Command("basket"))
+        async def cmd_basket(message: Message, db: Database, user: dict, lang: str):
+            terms = [t for t in get_args(message).split() if t][:5]
+            if not terms:
+                await message.answer(
+                    "Usage: /basket tomato onion shiro\n"
+                    "Compares shops that carry ALL items and finds the cheapest basket."
+                )
+                return
+            html_text, md_text = await self._basket_report(db, terms, lang)
+            await self._answer_rich(message, html_text, md_text)
 
         @self.router.message(Command("addcity"))
         async def cmd_addcity(message: Message, db: Database, lang: str):
@@ -1147,7 +1196,7 @@ class AddisSukBot:
                 pass  # Ignore if the query has already timed out or is invalid
             info = await self.services.user.get_user_subscription_info(callback.from_user.id)
             status_text = "⭐ Your subscription is active" if info.get('is_premium', False) else "⭐ No active subscription"
-            am_status_text = "⭐ አባል ነዎት" if info.get('is_premium', False) else "⭐ አ巴ል አይደልም"
+            am_status_text = "⭐ አባል ነዎት" if info.get('is_premium', False) else "⭐ ንቁ አባልነት የለም"
             try:
                 await callback.message.edit_text(
                     status_text if lang == 'en' else am_status_text,
@@ -1176,86 +1225,110 @@ class AddisSukBot:
                 """SELECT i.*, s.shop_name, s.city, s.latitude, s.longitude, s.is_verified
                    FROM items i JOIN sellers s ON i.seller_id=s.id
                    WHERE i.category_id=? AND i.status='approved' AND s.status='approved'
-                   ORDER BY s.featured_until IS NULL, i.price ASC LIMIT 10""",
+                   ORDER BY s.featured_until IS NULL, i.price ASC LIMIT 50""",
                 (cat_id,)
             )
-            if not items:
-                msg = f"No items in {cat_name} yet." if lang == 'en' else f"በ{cat_name} ምድብ ውስጥ እስካሁን ምርቶች የሉም።"
-                try:
-                    await callback.message.edit_text(
-                        msg,
-                        reply_markup=main_menu(lang)
-                    )
-                except Exception:
-                    await callback.message.answer(msg)
-                return
-            shown = items[:10]
-            rows = []
-            best = None
-            for idx, item in enumerate(shown, 1):
-                name = item['name_am'] if lang == 'am' else item['name_en']
-                if best is None or item['price'] < best['price']:
-                    best = item
-                shop_label = str(item['shop_name'])
-                if item['is_verified']:
-                    shop_label = f"✅ {shop_label}"
-                rows.append([
-                    idx,
-                    str(name),
-                    f"{item['price']:g}/{item['unit']}",
-                    shop_label,
-                    str(item['city'] or "-"),
-                ])
+            await self._send_category_view(callback.message, db, cat_id, cat_name, items, lang, 0)
 
-            best_shop = (
-                f"✅ {best['shop_name']}"
-                if best['is_verified'] else str(best['shop_name'])
-            )
-            cat = str(cat_name)
+    async def _send_category_view(self, message_obj, db: Database, cat_id: int,
+                                  cat_name: str, items: list, lang: str,
+                                  offset: int = 0, edit: bool = False):
+        """Render a paginated category view with trends, favorites and reports."""
+        if not items:
+            msg = f"No items in {cat_name} yet." if lang == 'en' else f"በ{cat_name} ምድብ ውስጥ እስካሁን ምርቶች የሉም።"
+            try:
+                await message_obj.edit_text(msg, reply_markup=main_menu(lang))
+            except Exception:
+                await message_obj.answer(msg)
+            return
 
-            if lang == 'en':
-                header_html = f"📋 <b>{html.escape(cat)} — {len(items)} items</b>"
-                footer_html = (
-                    f"💰 <b>Best price:</b> {best['price']:g} {best['unit']} "
-                    f"at <i>{html.escape(best_shop)}</i>"
-                )
-                header_md = f"📋 *{self._clean(cat)} — {len(items)} items*"
-                footer_md = (
-                    f"💰 *Best price:* {best['price']:g} {best['unit']} "
-                    f"at _{self._clean(best_shop)}_"
-                )
-            else:
-                header_html = f"📋 <b>{html.escape(cat)} — {len(items)} ምርቶች</b>"
-                footer_html = (
-                    f"💰 <b>ምርጥ ዋጋ:</b> {best['price']:g} {best['unit']} "
-                    f"በ <i>{html.escape(best_shop)}</i>"
-                )
-                header_md = f"📋 *{self._clean(cat)} — {len(items)} ምርቶች*"
-                footer_md = (
-                    f"💰 *ምርጥ ዋጋ:* {best['price']:g} {best['unit']} "
-                    f"በ _{self._clean(best_shop)}_"
-                )
+        page_size = 10
+        offset = max(0, offset)
+        shown = items[offset:offset + page_size]
+        if not shown:
+            shown = items[:page_size]
+            offset = 0
+        trends = await self.services.item.get_price_trends([i['id'] for i in shown])
 
-            headers = ["#", "Item", "Price", "Shop", "City"]
-            html_text = "\n".join([
-                header_html,
-                self._html_table(headers, rows),
-                footer_html,
+        rows = []
+        best = None
+        for idx, item in enumerate(shown, 1):
+            name = item['name_am'] if lang == 'am' else item['name_en']
+            if best is None or item['price'] < best['price']:
+                best = item
+            shop_label = str(item['shop_name'])
+            if item['is_verified']:
+                shop_label = f"✅ {shop_label}"
+            trend = trends.get(item['id'])
+            trend_html = ""
+            if trend is not None:
+                trend_html = f" 📈 +{trend:g}%" if trend > 0 else f" 📉 {trend:g}%"
+            rows.append([
+                offset + idx,
+                str(name),
+                f"{item['price']:g}/{item['unit']}{trend_html}",
+                shop_label,
+                str(item['city'] or "-"),
             ])
-            table_md = self._format_table(
-                headers, [[self._clean(c) for c in row] for row in rows]
-            )
-            md_text = "\n".join([header_md, f"```\n{table_md}\n```", footer_md])
 
-            keyboard = InlineKeyboardBuilder()
-            for idx, item in enumerate(shown[:5], 1):
-                keyboard.button(text=f"⭐ {idx}", callback_data=f"fav_{item['id']}")
-            keyboard.button(text="❌ Cancel", callback_data="cancel")
-            keyboard.adjust(3, 2, 1)
-            await self._answer_rich(
-                callback.message, html_text, md_text,
-                reply_markup=keyboard.as_markup(), edit=True
+        best_shop = (
+            f"✅ {best['shop_name']}"
+            if best['is_verified'] else str(best['shop_name'])
+        )
+        cat = str(cat_name)
+        page = offset // page_size + 1
+        pages = max(1, (len(items) + page_size - 1) // page_size)
+        page_label = f" · 📄 {page}/{pages}" if pages > 1 else ""
+
+        if lang == 'en':
+            header_html = f"📋 <b>{html.escape(cat)} — {len(items)} items</b>{page_label}"
+            footer_html = (
+                f"💰 <b>Best price:</b> {best['price']:g} {best['unit']} "
+                f"at <i>{html.escape(best_shop)}</i>"
             )
+            header_md = f"📋 *{self._clean(cat)} — {len(items)} items*{page_label}"
+            footer_md = (
+                f"💰 *Best price:* {best['price']:g} {best['unit']} "
+                f"at _{self._clean(best_shop)}_"
+            )
+        else:
+            header_html = f"📋 <b>{html.escape(cat)} — {len(items)} ምርቶች</b>{page_label}"
+            footer_html = (
+                f"💰 <b>ምርጥ ዋጋ:</b> {best['price']:g} {best['unit']} "
+                f"በ <i>{html.escape(best_shop)}</i>"
+            )
+            header_md = f"📋 *{self._clean(cat)} — {len(items)} ምርቶች*{page_label}"
+            footer_md = (
+                f"💰 *ምርጥ ዋጋ:* {best['price']:g} {best['unit']} "
+                f"በ _{self._clean(best_shop)}_"
+            )
+
+        headers = ["#", "Item", "Price", "Shop", "City"]
+        html_text = "\n".join([
+            header_html,
+            self._html_table(headers, rows),
+            footer_html,
+        ])
+        table_md = self._format_table(
+            headers, [[self._clean(c) for c in row] for row in rows]
+        )
+        md_text = "\n".join([header_md, f"```\n{table_md}\n```", footer_md])
+
+        keyboard = InlineKeyboardBuilder()
+        for idx, item in enumerate(shown[:5], 1):
+            keyboard.button(text=f"⭐ {idx}", callback_data=f"fav_{item['id']}")
+        for idx, item in enumerate(shown[:5], 1):
+            keyboard.button(text=f"⚠️ {idx}", callback_data=f"report_{item['id']}")
+        if offset > 0:
+            keyboard.button(text="⬅️ Prev", callback_data=f"catpage_{cat_id}_{offset - page_size}")
+        if offset + page_size < len(items):
+            keyboard.button(text="Next ➡️", callback_data=f"catpage_{cat_id}_{offset + page_size}")
+        keyboard.button(text="❌ Cancel", callback_data="cancel")
+        keyboard.adjust(3, 2, 3, 2, 2, 1)
+        await self._answer_rich(
+            message_obj, html_text, md_text,
+            reply_markup=keyboard.as_markup(), edit=edit
+        )
 
         @self.router.callback_query(F.data.startswith("fav_"))
         async def cb_favorite(callback: CallbackQuery, db: Database, user: dict, lang: str):
@@ -1427,7 +1500,7 @@ class AddisSukBot:
             if not seller or seller['status'] != 'approved':
                 try:
                     await callback.message.edit_text(
-                        "❌ Seller not found or not approved." if lang == 'en' else "❌ ሻሹን የላለ ወሰን የላለ"
+                        "❌ Seller not found or not approved." if lang == 'en' else "❌ ሻጩ አልተገኘም ወይም ገና አልፈቀደለትም።"
                     )
                 except Exception:
                     await callback.message.answer("Seller not found or not approved.")
@@ -1601,7 +1674,7 @@ class AddisSukBot:
                 if not shops:
                     await callback.message.answer(
                         "🔍 No shops found in your area. Try searching from a location." if lang == 'en' else
-                        "🔍 እባክዎ የወሳቸኛ እርስጥ አሉ። አቅራቢያ ከማይካ ይጠቀም።"
+                        "🔍 በአካባቢዎ ሱቆች አልተገኙም። መገኛ ቦታዎን ያስቀምጡ።"
                     )
                     return
                 
@@ -1641,7 +1714,7 @@ class AddisSukBot:
                 if not shops:
                     await callback.message.answer(
                         "🔍 No shops found in your area. Try searching from a location." if lang == 'en' else
-                        "🔍 እባክዎ የወሳቸኛ እርስጥ አሉ። አቅራቢያ ከማይካ ይጠቀም።"
+                        "🔍 በአካባቢዎ ሱቆች አልተገኙም። መገኛ ቦታዎን ያስቀምጡ።"
                     )
                     return
                 
@@ -1714,7 +1787,7 @@ class AddisSukBot:
             if not user.get('latitude') or not user.get('longitude'):
                 try:
                     await callback.answer(
-                        "Share your location" if lang == 'en' else "መገኛ ያስገቡ",
+                        "Share your location" if lang == 'en' else "መገኛዎን ያጋሩ",
                         show_alert=True
                     )
                 except Exception:
@@ -1767,14 +1840,14 @@ class AddisSukBot:
             if city == "Addis Ababa":
                 try:
                     await callback.message.edit_text(
-                        "📍 Select your area:" if lang == 'en' else "📍 ክፍለ ከተማዎን/አካባቢዎን ይምረጡ፦",
+                        "📍 Select your area:" if lang == 'en' else "📍 አካባቢዎን ይምረጡ፦",
                         reply_markup=subcities_keyboard(
                             [s[0] for s in await self._merged_subcities(db)], lang
                         )
                     )
                 except Exception:
                     await callback.message.answer(
-                        "📍 Select your area:" if lang == 'en' else "📍 ክፍለ ከተማዎን/አካባቢዎን ይምረጡ፦",
+                        "📍 Select your area:" if lang == 'en' else "📍 አካባቢዎን ይምረጡ፦",
                         reply_markup=subcities_keyboard(
                             [s[0] for s in await self._merged_subcities(db)], lang
                         )
@@ -1826,6 +1899,127 @@ class AddisSukBot:
                 await callback.message.answer("Enter item name (e.g., tomato)")
             await state.set_state(Form.SEARCH_QUERY)
 
+        @self.router.callback_query(F.data.startswith("respage_"))
+        async def cb_respage(callback: CallbackQuery, db: Database, user: dict, lang: str):
+            try:
+                await callback.answer()
+            except Exception:
+                pass
+            cache = self._search_cache.get(callback.message.chat.id)
+            if not cache:
+                return
+            try:
+                offset = int(callback.data.split("_")[1])
+            except (IndexError, ValueError):
+                return
+            items, total = await self.services.item.search_items(
+                query=cache['query'], user_lat=user.get('latitude'),
+                user_lon=user.get('longitude'), limit=50
+            )
+            cache['total'] = total
+            await self._display_results(
+                callback.message, items, total, lang, cache['query'],
+                offset=offset, edit=True
+            )
+
+        @self.router.callback_query(F.data.startswith("catpage_"))
+        async def cb_catpage(callback: CallbackQuery, db: Database, lang: str):
+            try:
+                await callback.answer()
+            except Exception:
+                pass
+            parts = callback.data.split("_")
+            if len(parts) < 3 or not parts[1].isdigit() or not parts[2].isdigit():
+                return
+            cat_id, offset = int(parts[1]), int(parts[2])
+            category = await db.fetchone("SELECT * FROM categories WHERE id=?", (cat_id,))
+            if not category:
+                return
+            cat_name = category['name_am'] if lang == 'am' else category['name_en']
+            items = await db.fetchall(
+                """SELECT i.*, s.shop_name, s.city, s.latitude, s.longitude, s.is_verified
+                   FROM items i JOIN sellers s ON i.seller_id=s.id
+                   WHERE i.category_id=? AND i.status='approved' AND s.status='approved'
+                   ORDER BY s.featured_until IS NULL, i.price ASC LIMIT 50""",
+                (cat_id,)
+            )
+            await self._send_category_view(callback.message, db, cat_id, cat_name, items, lang, offset, edit=True)
+
+        @self.router.callback_query(F.data.startswith("report_"))
+        async def cb_report(callback: CallbackQuery, db: Database, user: dict, lang: str):
+            item_id = int(callback.data.split("_")[1])
+            if not user:
+                return
+            cursor = await db.execute(
+                "INSERT OR IGNORE INTO item_reports (item_id, user_id) VALUES (?, ?)",
+                (item_id, user['id'])
+            )
+            if cursor.rowcount:
+                try:
+                    await callback.answer(
+                        "✅ Reported. Thank you!" if lang == 'en' else "✅ ሪፖርት ተደርጓል! እናመሰግናለን።",
+                        show_alert=True
+                    )
+                except Exception:
+                    pass
+            else:
+                try:
+                    await callback.answer(
+                        "Already reported." if lang == 'en' else "ከዚህ ቀደም ሪፖርት ተደርጓል።",
+                        show_alert=True
+                    )
+                except Exception:
+                    pass
+
+        @self.router.callback_query(F.data == "digest_toggle")
+        async def cb_digest_toggle(callback: CallbackQuery, db: Database, user: dict, lang: str):
+            try:
+                await callback.answer()
+            except Exception:
+                pass
+            if not user:
+                return
+            current = user.get('digest_enabled')
+            new_val = 0 if (current is None or current) else 1
+            await db.execute(
+                "UPDATE users SET digest_enabled = ? WHERE telegram_id = ?",
+                (new_val, callback.from_user.id)
+            )
+            status = "ON" if new_val else "OFF"
+            status_am = "በርቷል" if new_val else "ጠፍቷል"
+            try:
+                await callback.message.edit_text(
+                    f"📰 Weekly digest: {status}"
+                    if lang == 'en' else f"📰 ሳምንታዊ መልእክት፦ {status_am}",
+                    reply_markup=settings_menu(lang)
+                )
+            except Exception:
+                pass
+
+        @self.router.inline_query()
+        async def inline_search(query: InlineQuery):
+            q = (query.query or "").strip()
+            items, _total = await self.services.item.search_items(query=q, limit=15)
+            results = []
+            for it in items[:15]:
+                name = it['name_en']
+                text = (
+                    f"🏷 <b>{html.escape(str(name))}</b> — {it['price']:g} {html.escape(str(it['unit']))}\n"
+                    f"🏪 {html.escape(str(it['shop_name']))} · 📍 {html.escape(str(it['city'] or '-'))}"
+                )
+                results.append(InlineQueryResultArticle(
+                    id=str(it['id']),
+                    title=f"{name} — {it['price']:g} Br",
+                    description=f"{it['shop_name']} · {it['city'] or ''}",
+                    input_message_content=InputTextMessageContent(
+                        message_text=text, parse_mode="HTML"
+                    ),
+                ))
+            try:
+                await query.answer(results, cache_time=10, is_personal=True)
+            except Exception:
+                pass
+
         @self.router.callback_query(F.data.startswith("admin_"))
         async def cb_admin_menu(callback: CallbackQuery, db: Database, lang: str):
             try:
@@ -1852,6 +2046,11 @@ class AddisSukBot:
                 text = await self._revenue_text(db)
             elif callback.data == "admin_stats":
                 text = await self._weekly_stats_text(db)
+            elif callback.data == "admin_reports":
+                stats = await db.fetchone(
+                    "SELECT COUNT(*) AS c FROM item_reports WHERE status = 'open'"
+                )
+                text = f"⚠️ Open price reports: {stats['c']}\n\nUse /reports to view details."
             elif callback.data == "admin_broadcast":
                 text = "📢 Use /broadcast to send a message to all users."
             else:
@@ -1889,6 +2088,84 @@ class AddisSukBot:
                     pass
         self.dp.errors.register(error_handler)
 
+    async def _basket_report(self, db: Database, terms: list, lang: str):
+        """Find the cheapest single shop carrying all basket items."""
+        per_seller: Dict[int, Dict[str, tuple]] = {}
+        shop_names: Dict[int, Dict[str, str]] = {}
+        term_bests = []
+        for term in terms:
+            rows = await db.fetchall(
+                """
+                SELECT i.name_en, i.price, i.unit, s.id AS sid, s.shop_name, s.city
+                FROM items i JOIN sellers s ON i.seller_id = s.id
+                WHERE i.status = 'approved' AND s.status = 'approved'
+                  AND (i.name_en LIKE ? OR i.name_am LIKE ?)
+                ORDER BY i.price ASC LIMIT 20
+                """,
+                (f"%{term}%", f"%{term}%")
+            )
+            best = rows[0] if rows else None
+            term_bests.append((term, best))
+            for r in rows:
+                per_seller.setdefault(r['sid'], {})[term] = (r['price'], r['name_en'])
+                shop_names[r['sid']] = {'shop_name': r['shop_name'], 'city': r['city'] or "-"}
+
+        full_shops = {sid: d for sid, d in per_seller.items() if len(d) == len(terms)}
+        html_parts, md_parts = [], []
+
+        if full_shops:
+            totals = {
+                sid: sum(p for p, _ in d.values()) for sid, d in full_shops.items()
+            }
+            ranked = sorted(totals.items(), key=lambda kv: kv[1])[:5]
+            rows = [
+                [i, f"{shop_names[sid]['shop_name']} ({shop_names[sid]['city']})",
+                 f"{total:g} Br"]
+                for i, (sid, total) in enumerate(ranked, 1)
+            ]
+            if lang == 'en':
+                html_parts.append("🧺 <b>Cheapest basket</b> (" + ", ".join(terms) + ")")
+                md_parts.append(f"🧺 *Cheapest basket* ({', '.join(self._clean(t) for t in terms)})")
+            else:
+                html_parts.append("🧺 <b>ርካሽ ቅርጫት</b> (" + ", ".join(terms) + ")")
+                md_parts.append(f"🧺 *ርካሽ ቅርጫት* ({', '.join(self._clean(t) for t in terms)})")
+            html_parts.append(self._html_table(["#", "Shop", "Basket total"], rows))
+            md_parts.append("```\n" + self._format_table(
+                ["#", "Shop", "Basket total"],
+                [[self._clean(c) for c in row] for row in rows]
+            ) + "\n```")
+
+        rows2 = []
+        for i, (term, best) in enumerate(term_bests, 1):
+            if best:
+                rows2.append([i, best['name_en'], f"{best['price']:g}/{best['unit']}",
+                              best['shop_name']])
+            else:
+                rows2.append([i, term, "-", "—"])
+        if lang == 'en':
+            html_parts.append("🏷 <b>Cheapest per item</b>")
+            md_parts.append("🏷 *Cheapest per item*")
+        else:
+            html_parts.append("🏷 <b>በእያንዳንዱ ምርት ርካሽ</b>")
+            md_parts.append("🏷 *በእያንዳንዱ ምርት ርካሽ*")
+        html_parts.append(self._html_table(["#", "Item", "Price", "Shop"], rows2))
+        md_parts.append("```\n" + self._format_table(
+            ["#", "Item", "Price", "Shop"],
+            [[self._clean(c) for c in row] for row in rows2]
+        ) + "\n```")
+
+        return "\n".join(html_parts), "\n".join(md_parts)
+
+    async def _send_city_picker(self, message: Message, db: Database, lang: str):
+        """Show the manual city selection keyboard (shared entry point)."""
+        cities = await self._merged_cities(db)
+        city_names = [c[0] for c in cities]
+        city_names_am = [c[1] for c in cities]
+        await message.answer(
+            "🏙️ Select your city:" if lang == 'en' else "🏙️ ከተማዎን ይምረጡ፦",
+            reply_markup=cities_keyboard(city_names, city_names_am, lang)
+        )
+
     async def _apply_referral(self, message: Message, referrer_tg: int, user: dict, lang: str):
         """Grant both sides a premium week for a /start ref_<id> deep link."""
         if not user or referrer_tg == user['telegram_id']:
@@ -1915,7 +2192,7 @@ class AddisSukBot:
             pass
         await message.answer(
             "🎁 Welcome! You and your friend both got 7 days of Premium."
-            if lang == 'en' else "🎁 እንኳን ደህና መጡ! አንተም ሆነ ጓደኛህ 7 ቀን ፕሪሚየም አግኝታችኋል።"
+            if lang == 'en' else "🎁 እንኳን ደህና መጡ! እርስዎም ሆነ ጓደኛዎ 7 ቀን ፕሪሚየም አግኝታችኋል።"
         )
 
     async def _show_item_detail(self, message: Message, item_id: int, lang: str, user: dict):
@@ -2039,14 +2316,16 @@ class AddisSukBot:
             "SELECT (SELECT COUNT(*) FROM users) as total_users, "
             "(SELECT COUNT(*) FROM sellers WHERE status='pending') as pending_sellers, "
             "(SELECT COUNT(*) FROM items WHERE status='pending') as pending_items, "
-            "(SELECT COUNT(*) FROM users WHERE subscription_tier='premium') as premium_users"
+            "(SELECT COUNT(*) FROM users WHERE subscription_tier='premium') as premium_users, "
+            "(SELECT COUNT(*) FROM item_reports WHERE status='open') as open_reports"
         )
         return (
             f"📊 *Admin Dashboard*\n\n"
             f"Total Users: {stats['total_users']}\n"
             f"Pending Sellers: {stats['pending_sellers']}\n"
             f"Pending Items: {stats['pending_items']}\n"
-            f"Premium Users: {stats['premium_users']}"
+            f"Premium Users: {stats['premium_users']}\n"
+            f"Open Reports: {stats['open_reports']}"
         )
 
     async def _weekly_stats_text(self, db: Database) -> str:
@@ -2267,7 +2546,7 @@ class AddisSukBot:
                 text = (
                     f"🔔 <b>የዋጋ ማሳወቂያ!</b>\n"
                     f"{html.escape(str(alert['item_name']))} አሁን <b>{t['current_price']:g} ብር</b> ሆኗል "
-                    f"(ᢠላማ ≤ {alert['target_price']:g} ብር)።"
+                    f"(ዒላማ ≤ {alert['target_price']:g} ብር)።"
                 )
             try:
                 await self.bot.send_message(tg, text, parse_mode="HTML")
