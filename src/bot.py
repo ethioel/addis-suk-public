@@ -2,19 +2,22 @@ import asyncio
 import html
 import logging
 import sys
+from datetime import datetime, timedelta
 from pathlib import Path
 from aiogram import Bot, Dispatcher, F, Router
 from aiogram.client.default import DefaultBotProperties
+from aiogram.exceptions import SkipHandler
 from aiogram.filters import Command, CommandStart
 from aiogram.types import (
     Message, CallbackQuery, ErrorEvent,
-    ReplyKeyboardMarkup, KeyboardButton
+    ReplyKeyboardMarkup, KeyboardButton,
+    InlineQuery, InlineQueryResultArticle, InputTextMessageContent
 )
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 from aiogram.fsm.storage.memory import MemoryStorage
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
-from typing import Any
+from typing import Any, Dict, Optional
 
 from src.config import load_config
 config = load_config()
@@ -77,6 +80,9 @@ class AddisSukBot:
         self.db = Database(config.DB_PATH)
         self.services = Services(self.db)
         self.router = Router()
+        self._search_cache: Dict[int, dict] = {}
+        self.bot_username: Optional[str] = None
+        self._last_digest_date = None
 
         self._setup_middlewares()
         self._register_startup()
@@ -107,6 +113,12 @@ class AddisSukBot:
                 await self._seed_demo_data()
             except Exception as e:
                 logger.error(f"Startup error: {e}")
+            try:
+                me = await bot.get_me()
+                self.bot_username = me.username
+                logger.info("Bot username: @%s", self.bot_username)
+            except Exception as e:
+                logger.warning(f"get_me failed: {e}")
 
     def register_handlers(self):
         self._register_commands()
@@ -124,6 +136,13 @@ class AddisSukBot:
                 first_name=message.from_user.first_name,
                 last_name=message.from_user.last_name
             )
+            deep = get_args(message).strip()
+            user_lang = user.get('language') or 'en'
+            if deep.startswith("item_") and deep[5:].isdigit():
+                await self._show_item_detail(message, int(deep[5:]), user_lang, user)
+                return
+            if deep.startswith("ref_") and deep[4:].isdigit():
+                await self._apply_referral(message, int(deep[4:]), user, user_lang)
             if not user.get('language'):
                 await state.set_state(Form.LANGUAGE_SELECT)
                 await message.answer(
@@ -166,14 +185,20 @@ class AddisSukBot:
 
         @self.router.message(Form.LANGUAGE_SELECT)
         async def language_select_handler(message: Message, state: FSMContext, db: Database, user: dict, lang: str):
-            text = message.text.strip().lower()
+            text = (message.text or "").strip().lower()
             if text in ('english', 'en', 'eng'):
                 language = 'en'
             elif text in ('አማርኛ', 'amharic', 'am', 'amh'):
                 language = 'am'
             else:
+                # If a language is already known, the stuck selection state must
+                # not swallow normal messages (e.g. the "Choose City" button)
+                if user and user.get('language') in ('en', 'am'):
+                    await state.clear()
+                    raise SkipHandler
                 await message.answer(
-                    "🌍 Please select your language / እብዎ ቋንቋ ይምርጡ" if lang == 'en' else "🌍 እብዎ ቋንቋ ይምርጡ",
+                    "🌍 Please select your language / እባክዎ ቋንቋ ይምረጡ"
+                    if lang == 'en' else "🌍 እባክዎ ቋንቋ ይምረጡ",
                     reply_markup=language_selector()
                 )
                 return
@@ -383,7 +408,7 @@ class AddisSukBot:
                 return
 
             items, total = await self.services.item.search_items(
-                query=query, user_lat=user['latitude'], user_lon=user['longitude'], limit=20
+                query=query, user_lat=user['latitude'], user_lon=user['longitude'], limit=50
             )
             await self._display_results(message, items, total, lang, query or "nearby")
 
@@ -461,7 +486,7 @@ class AddisSukBot:
             """Auto-perform nearby search using shared location."""
             from src.services import Services
             items, total = await self.services.item.search_items(
-                query="", user_lat=lat, user_lon=lon, limit=20
+                query="", user_lat=lat, user_lon=lon, limit=50
             )
             await self._display_results(message, items, total, lang, "nearby")
 
@@ -1070,7 +1095,7 @@ class AddisSukBot:
 
     def _register_callbacks(self):
         @self.router.callback_query((F.data == "language") | F.data.startswith("lang_"))
-        async def cb_language(callback: CallbackQuery, db: Database, lang: str):
+        async def cb_language(callback: CallbackQuery, state: FSMContext, db: Database, lang: str):
             # Safely answer immediately to prevent Telegram query expiration timeouts
             try:
                 await callback.answer()
@@ -1079,6 +1104,9 @@ class AddisSukBot:
             if callback.data.startswith("lang_"):
                 new_lang = callback.data.split("_")[1]
                 await self.services.user.update_user_language(callback.from_user.id, new_lang)
+                # Clear the language-selection state so later texts (e.g. the
+                # "Choose City" reply button) are not re-intercepted
+                await state.clear()
                 try:
                     await callback.message.edit_text(
                         "✅ Language updated!" if new_lang == 'en' else "✅ ቋንቋው ተዘምኗል!",
@@ -1704,7 +1732,7 @@ class AddisSukBot:
             keyboard.button(text="📋 Categories", callback_data="categories")
             keyboard.button(text="❌ Done", callback_data="cancel")
             items, total = await self.services.item.search_items(
-                query=query, user_lat=user['latitude'], user_lon=user['longitude'], limit=20
+                query=query, user_lat=user['latitude'], user_lon=user['longitude'], limit=50
             )
             await self._display_results(callback.message, items, total, lang, query or "nearby")
 
@@ -1757,7 +1785,7 @@ class AddisSukBot:
             )
             await state.clear()
             items, total = await self.services.item.search_items(
-                query="", user_lat=lat, user_lon=lon, limit=20
+                query="", user_lat=lat, user_lon=lon, limit=50
             )
             await self._display_results(callback.message, items, total, lang, f"nearby · {city}")
 
@@ -1778,7 +1806,7 @@ class AddisSukBot:
             )
             await state.clear()
             items, total = await self.services.item.search_items(
-                query="", user_lat=lat, user_lon=lon, limit=20
+                query="", user_lat=lat, user_lon=lon, limit=50
             )
             await self._display_results(callback.message, items, total, lang, f"nearby · {sub}")
 
@@ -1861,15 +1889,89 @@ class AddisSukBot:
                     pass
         self.dp.errors.register(error_handler)
 
-    async def _perform_search(self, message: Message, query: str, db: Database, user: dict, lang: str):
+    async def _apply_referral(self, message: Message, referrer_tg: int, user: dict, lang: str):
+        """Grant both sides a premium week for a /start ref_<id> deep link."""
+        if not user or referrer_tg == user['telegram_id']:
+            return
+        if user.get('referrer_id'):
+            return
+        referrer = await self.services.user.get_or_create_user(telegram_id=referrer_tg)
+        if not referrer:
+            return
+        await self.db.execute(
+            "UPDATE users SET referrer_id = ? WHERE telegram_id = ?",
+            (referrer_tg, user['telegram_id'])
+        )
+        await self.services.user.set_user_premium(user['telegram_id'], days=7)
+        await self.services.user.set_user_premium(referrer_tg, days=7)
+        try:
+            await self.bot.send_message(
+                referrer_tg,
+                f"🎉 <b>Referral bonus!</b>\n{html.escape(user.get('first_name') or 'A friend')} "
+                "joined with your link — you both got 7 days of Premium!",
+                parse_mode="HTML"
+            )
+        except Exception:
+            pass
+        await message.answer(
+            "🎁 Welcome! You and your friend both got 7 days of Premium."
+            if lang == 'en' else "🎁 እንኳን ደህና መጡ! አንተም ሆነ ጓደኛህ 7 ቀን ፕሪሚየም አግኝታችኋል።"
+        )
+
+    async def _show_item_detail(self, message: Message, item_id: int, lang: str, user: dict):
+        """Full detail card for a single item (deep links + sharing)."""
+        item = await self.db.fetchone(
+            """
+            SELECT i.*, s.shop_name, s.city, s.address, s.is_verified, s.id AS sid
+            FROM items i JOIN sellers s ON i.seller_id = s.id
+            WHERE i.id = ? AND i.status = 'approved' AND s.status = 'approved'
+            """,
+            (item_id,)
+        )
+        if not item:
+            await message.answer(
+                "❌ Item not found." if lang == 'en' else "❌ ምርቱ አልተገኘም።"
+            )
+            return
+        trends = await self.services.item.get_price_trends([item_id])
+        trend = trends.get(item_id)
+        trend_html = ""
+        if trend is not None:
+            trend_html = " 📈 +{:.0f}%".format(trend) if trend > 0 else " 📉 {:.0f}%".format(trend)
+        badge = "✅ " if item['is_verified'] else ""
+        html_text = (
+            f"🏷 <b>{html.escape(str(item['name_en']))}</b> · {item['price']:g} {html.escape(str(item['unit']))}{trend_html}\n"
+            f"🏪 {html.escape(badge + str(item['shop_name']))}\n"
+            f"📍 {html.escape(str(item['address'] or ''))}, {html.escape(str(item['city'] or ''))}"
+        )
+        md_text = (
+            f"🏷 *{self._clean(item['name_en'])}* · {item['price']:g} {self._clean(item['unit'])}"
+            f"{self._clean(trend_html)}\n"
+            f"🏪 {badge}{self._clean(item['shop_name'])}\n"
+            f"📍 {self._clean(item['address'] or '')}, {self._clean(item['city'] or '')}"
+        )
+        keyboard = InlineKeyboardBuilder()
+        keyboard.button(text="🏪 View Shop", callback_data=f"seller_{item['sid']}")
+        keyboard.button(text="⚠️ Report", callback_data=f"report_{item_id}")
+        if self.bot_username:
+            keyboard.button(
+                text="↗️ Share",
+                url=f"https://t.me/{self.bot_username}?start=item_{item_id}"
+            )
+        keyboard.adjust(2, 1)
+        await self._answer_rich(message, html_text, md_text, reply_markup=keyboard.as_markup())
+
+    async def _perform_search(self, message: Message, query: str, db: Database, user: dict, lang: str, offset: int = 0):
         await db.execute(
             "INSERT INTO search_logs (user_id, query) VALUES (?, ?)",
             (user['id'], query)
         )
         items, total = await self.services.item.search_items(
-            query=query, user_lat=user.get('latitude'), user_lon=user.get('longitude'), limit=20
+            query=query, user_lat=user.get('latitude'), user_lon=user.get('longitude'),
+            limit=50, offset=0
         )
-        await self._display_results(message, items, total, lang, query)
+        self._search_cache[message.chat.id] = {'query': query, 'total': total}
+        await self._display_results(message, items, total, lang, query, offset=offset)
 
     @staticmethod
     def _clean(text: str) -> str:
@@ -2021,7 +2123,8 @@ class AddisSukBot:
                 ))
         return subs
 
-    async def _display_results(self, message: Message, items: list, total: int, lang: str, query: str):
+    async def _display_results(self, message: Message, items: list, total: int, lang: str,
+                               query: str, offset: int = 0, edit: bool = False):
         if not items:
             text = (
                 f"🔍 No results found for '{query}'.\nTry a different search term."
@@ -2030,7 +2133,14 @@ class AddisSukBot:
             await message.answer(text, reply_markup=main_menu(lang))
             return
 
-        shown = items[:10]
+        page_size = 10
+        offset = max(0, offset)
+        shown = items[offset:offset + page_size]
+        if not shown:
+            shown = items[:page_size]
+            offset = 0
+        trends = await self.services.item.get_price_trends([i['id'] for i in shown])
+
         rows = []
         best = None
         for idx, item in enumerate(shown, 1):
@@ -2041,10 +2151,14 @@ class AddisSukBot:
             shop_label = str(item['shop_name'])
             if item.get('is_verified'):
                 shop_label = f"✅ {shop_label}"
+            trend = trends.get(item['id'])
+            trend_html = ""
+            if trend is not None:
+                trend_html = f" 📈 +{trend:g}%" if trend > 0 else f" 📉 {trend:g}%"
             rows.append([
-                idx,
+                offset + idx,
                 str(name),
-                f"{item['price']:g}/{item['unit']}",
+                f"{item['price']:g}/{item['unit']}{trend_html}",
                 shop_label,
                 f"{dist:.1f}km" if dist else "-",
             ])
@@ -2055,8 +2169,12 @@ class AddisSukBot:
         )
         q = str(query)
 
+        page = offset // page_size + 1
+        pages = max(1, (min(total, len(items)) + page_size - 1) // page_size)
+        page_label = f" · 📄 {page}/{pages}" if pages > 1 else ""
+
         if lang == 'en':
-            header_html = f"🔍 <b>Results for \"{html.escape(q)}\"</b> ({total} found)"
+            header_html = f"🔍 <b>Results for \"{html.escape(q)}\"</b> ({total} found){page_label}"
             footer_html = (
                 f"💰 <b>Best price:</b> {best['price']:g} {best['unit']} "
                 f"at <i>{html.escape(best_shop)}</i>"
@@ -2067,7 +2185,7 @@ class AddisSukBot:
                 f"at _{self._clean(best_shop)}_"
             )
         else:
-            header_html = f"🔍 <b>የ \"{html.escape(q)}\" ፍለጋ ውጤቶች</b> ({total} ተገኝተዋል)"
+            header_html = f"🔍 <b>የ \"{html.escape(q)}\" ፍለጋ ውጤቶች</b> ({total} ተገኝተዋል){page_label}"
             footer_html = (
                 f"💰 <b>ምርጥ ዋጋ:</b> {best['price']:g} {best['unit']} "
                 f"በ <i>{html.escape(best_shop)}</i>"
@@ -2090,16 +2208,164 @@ class AddisSukBot:
         md_text = "\n".join([header_md, f"```\n{table_md}\n```", footer_md])
 
         keyboard = InlineKeyboardBuilder()
+        if offset > 0:
+            keyboard.button(text="⬅️ Prev", callback_data=f"respage_{offset - page_size}")
+        if offset + page_size < min(total, len(items)):
+            keyboard.button(text="Next ➡️", callback_data=f"respage_{offset + page_size}")
+        if self.bot_username:
+            keyboard.button(
+                text="↗️ Share",
+                url=f"https://t.me/{self.bot_username}?start=item_{shown[0]['id']}"
+            )
         keyboard.button(text="🔍 New Search", callback_data="search_again")
         keyboard.button(text="📋 Categories", callback_data="categories")
         keyboard.button(text="❌ Done", callback_data="cancel")
-        keyboard.adjust(2, 1)
+        keyboard.adjust(2, 2, 1)
 
-        await self._answer_rich(message, html_text, md_text, reply_markup=keyboard.as_markup())
+        await self._answer_rich(message, html_text, md_text,
+                                reply_markup=keyboard.as_markup(), edit=edit)
 
     async def run(self):
         self.register_handlers()
+        asyncio.create_task(self._periodic_jobs())
         await self.dp.start_polling(self.bot, handle_signals=False)
+
+    async def _periodic_jobs(self):
+        """Background loop: alert engine, stale-listing nudges, weekly digest."""
+        while True:
+            try:
+                await self._check_alerts_job()
+            except Exception as e:
+                logger.warning(f"Alert job error: {e}")
+            try:
+                await self._nudge_stale_sellers()
+            except Exception as e:
+                logger.warning(f"Nudge job error: {e}")
+            try:
+                await self._send_weekly_digest()
+            except Exception as e:
+                logger.warning(f"Digest job error: {e}")
+            await asyncio.sleep(1800)
+
+    async def _check_alerts_job(self):
+        """Fire triggered price alerts and deactivate them after notifying."""
+        triggered = await self.services.alert.check_alerts()
+        for t in triggered:
+            alert = t['alert']
+            tg = alert.get('telegram_id')
+            if not tg:
+                continue
+            lang = alert.get('language') or 'en'
+            if lang == 'en':
+                text = (
+                    f"🔔 <b>Price alert!</b>\n"
+                    f"{html.escape(str(alert['item_name']))} is now "
+                    f"<b>{t['current_price']:g} Br</b> (target ≤ {alert['target_price']:g} Br).\n"
+                    f"You save {t['savings']:g} Br."
+                )
+            else:
+                text = (
+                    f"🔔 <b>የዋጋ ማሳወቂያ!</b>\n"
+                    f"{html.escape(str(alert['item_name']))} አሁን <b>{t['current_price']:g} ብር</b> ሆኗል "
+                    f"(ᢠላማ ≤ {alert['target_price']:g} ብር)።"
+                )
+            try:
+                await self.bot.send_message(tg, text, parse_mode="HTML")
+            except Exception:
+                pass
+            await self.db.execute(
+                "UPDATE price_alerts SET is_active = 0 WHERE id = ?", (alert['id'],)
+            )
+
+    async def _nudge_stale_sellers(self):
+        """Remind sellers whose prices have not been refreshed in 14+ days."""
+        rows = await self.db.fetchall(
+            """
+            SELECT s.id, s.shop_name, u.telegram_id FROM sellers s
+            JOIN users u ON s.user_id = u.id
+            WHERE s.status = 'approved'
+              AND (s.last_nudge_at IS NULL OR s.last_nudge_at < datetime('now', '-7 days'))
+              AND NOT EXISTS (
+                  SELECT 1 FROM items i
+                  WHERE i.seller_id = s.id AND i.updated_at >= datetime('now', '-14 days')
+              )
+            """
+        )
+        for r in rows:
+            try:
+                await self.bot.send_message(
+                    r['telegram_id'],
+                    f"📦 Hi! Your shop <b>{html.escape(r['shop_name'])}</b> hasn't updated "
+                    "prices in 14+ days. Fresh prices rank higher in search — "
+                    "use /update or /additem.",
+                    parse_mode="HTML"
+                )
+            except Exception:
+                continue
+            await self.db.execute(
+                "UPDATE sellers SET last_nudge_at = CURRENT_TIMESTAMP WHERE id = ?",
+                (r['id'],)
+            )
+
+    async def _send_weekly_digest(self):
+        """Saturday digest: cheapest items per staple category, opted-in users."""
+        if datetime.utcnow().weekday() != 5:  # Saturday
+            return
+        today = datetime.utcnow().date()
+        if self._last_digest_date == today:
+            return
+        self._last_digest_date = today
+        users = await self.db.fetchall(
+            "SELECT telegram_id FROM users WHERE digest_enabled = 1"
+        )
+        if not users:
+            return
+        sections = []
+        for cat_name in ("Vegetables", "Fruits", "Dairy & Eggs"):
+            items = await self.db.fetchall(
+                """
+                SELECT i.name_en, i.price, i.unit, s.shop_name
+                FROM items i
+                JOIN sellers s ON i.seller_id = s.id
+                JOIN categories c ON i.category_id = c.id
+                WHERE i.status = 'approved' AND s.status = 'approved' AND c.name_en = ?
+                ORDER BY i.price ASC LIMIT 3
+                """,
+                (cat_name,)
+            )
+            if items:
+                rows = [
+                    [i + 1, r['name_en'], f"{r['price']:g}/{r['unit']}", r['shop_name']]
+                    for i, r in enumerate(items)
+                ]
+                sections.append((cat_name, rows))
+        if not sections:
+            return
+        html_parts = ["📰 <b>Weekly best prices</b>"]
+        md_parts = ["📰 *Weekly best prices*"]
+        for cat_name, rows in sections:
+            html_parts.append(
+                f"🥇 <b>{html.escape(cat_name)}</b>\n"
+                + self._html_table(["#", "Item", "Price", "Shop"], rows)
+            )
+            md_parts.append(
+                f"*{self._clean(cat_name)}*\n```\n"
+                + self._format_table(
+                    ["#", "Item", "Price", "Shop"],
+                    [[self._clean(c) for c in row] for row in rows]
+                )
+                + "\n```"
+            )
+        html_text = "\n\n".join(html_parts)
+        md_text = "\n\n".join(md_parts)
+        for u in users:
+            try:
+                await self.bot.send_message(u['telegram_id'], html_text, parse_mode="HTML")
+            except Exception:
+                try:
+                    await self.bot.send_message(u['telegram_id'], md_text, parse_mode="Markdown")
+                except Exception:
+                    pass
 
 
 async def main():
