@@ -17,6 +17,7 @@ api.upload_folder(
         '.env',
         '.env.local',
         '*.db',
+        'readme',
         '.pytest_cache/**',
         '.ruff_cache/**',
         '.mypy_cache/**',
